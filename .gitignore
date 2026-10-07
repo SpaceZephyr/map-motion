@@ -1,0 +1,4 @@
+*.timeline.json
+__pycache__/
+.DS_Store
+*.mp4

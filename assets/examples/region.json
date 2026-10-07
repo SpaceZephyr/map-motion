@@ -1,0 +1,4 @@
+{"size": "portrait", "style": "light",
+ "shots": [
+  {"type": "region", "names": ["广东省"], "dur": 3, "caption": "广东省"},
+  {"type": "region", "names": ["深圳市", "东莞市", "惠州市"], "clear": true, "stagger": 0.7, "colors": ["#ff5a36", "#2f6bff", "#14b37d"], "caption": "深莞惠"}]}

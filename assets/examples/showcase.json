@@ -1,0 +1,12 @@
+{
+  "size": "portrait", "fps": 30, "style": "amap",
+  "shots": [
+    {"type": "globe", "to": "深圳湾公园", "zoom": 12.5, "dur": 6, "label": "深圳湾公园", "sub": "广东 · 深圳", "title": {"text": "从地球到深圳湾", "pos": "top"}},
+    {"type": "pins", "places": ["深圳湾公园", "深圳湾体育中心", "腾讯滨海大厦"], "dur": 2.8, "caption": "周末去哪儿"},
+    {"type": "route", "from": "深圳北站", "to": "广州塔", "mode": "driving", "odometer": true, "caption": {"text": "自驾去广州", "sub": "高德驾车路线"}},
+    {"type": "flight", "from": "广州", "to": "北京", "dur": 4.5, "caption": "飞去北京"},
+    {"type": "region", "names": ["北京市", "天津市", "河北省"], "stagger": 0.8, "clear": true, "caption": "京津冀"},
+    {"type": "radiate", "from": "北京", "to": ["上海", "广州", "成都", "西安", "哈尔滨", "乌鲁木齐", "拉萨", "昆明"], "clear": true, "caption": "从北京出发"},
+    {"type": "overview", "dur": 2.5, "title": {"text": "map-motion", "sub": "高德地图 × 代码动画", "pos": "bottom"}}
+  ]
+}

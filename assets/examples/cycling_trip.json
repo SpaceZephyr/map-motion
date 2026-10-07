@@ -1,0 +1,8 @@
+{"size": "landscape", "style": "satellite",
+ "shots": [
+  {"type": "globe", "to": {"name": "青海湖", "at": [100.18, 36.88]}, "zoom": 8.4, "dur": 5.5, "label": "青海湖", "sub": "海拔 3196 m · 中国最大内陆湖", "title": {"text": "青海湖环湖骑行", "sub": "示意行程", "pos": "top"}, "hold": 0.6},
+  {"type": "trip", "stops": ["二郎剑景区", "黑马河乡", "刚察县", "海晏县", "二郎剑景区"], "mode": "bicycling", "vehicle": "bike",
+   "elevation": true, "stay": 1.6, "overview": false,
+   "dates": {"黑马河乡": "07.12", "刚察县": "07.13", "海晏县": "07.14", "二郎剑景区": "07.15"}},
+  {"type": "overview", "dur": 3, "title": {"text": "四天，一圈", "sub": "高德骑行路线累计", "pos": "bottom"}}
+ ]}

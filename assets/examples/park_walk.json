@@ -1,0 +1,7 @@
+{"size": "portrait", "style": "amap",
+ "shots": [
+  {"type": "region", "names": ["徐汇区"], "dur": 2.6, "caption": {"text": "上海 · 徐汇区"}},
+  {"type": "pins", "places": [{"name": "桂林路站", "at": "桂林路(地铁站)"}, "桂林公园"], "dur": 2.2, "clear": true},
+  {"type": "route", "from": {"name": "桂林路站", "at": "桂林路(地铁站)"}, "to": "桂林公园", "mode": "walking", "follow": true, "follow_zoom": 1.2, "dur": 6, "odometer": {"label": "步行"}, "caption": {"text": "出地铁，步行去公园", "sub": "高德步行路线"}},
+  {"type": "area", "name": "桂林公园", "trace": true, "dur": 6, "caption": {"text": "绕园一周", "sub": "公园边界来自 OpenStreetMap"}}
+ ]}

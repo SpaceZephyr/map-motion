@@ -1,0 +1,5 @@
+{"size": "landscape", "style": "satellite",
+ "shots": [
+  {"type": "pins", "places": ["上海"], "zoom": 6, "dur": 1.5},
+  {"type": "flight", "from": "上海", "to": "乌鲁木齐", "dur": 5, "caption": {"text": "上海 → 乌鲁木齐", "sub": "约 3300 km · 航线示意"}},
+  {"type": "flight", "from": "乌鲁木齐", "to": "拉萨", "dur": 4, "second": true}]}

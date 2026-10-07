@@ -1,0 +1,4 @@
+{"size": "portrait", "style": "amap-dark",
+ "shots": [
+  {"type": "route", "from": "深圳北站", "to": "广州塔", "mode": "driving", "follow": true, "dur": 8, "odometer": true, "caption": {"text": "深圳 → 广州", "sub": "高德驾车路线 · 镜头跟车"}},
+  {"type": "overview", "dur": 2}]}

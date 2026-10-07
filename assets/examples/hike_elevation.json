@@ -1,0 +1,8 @@
+{"size": "portrait", "style": "satellite",
+ "shots": [
+  {"type": "globe", "to": "广东梧桐山风景名胜区", "zoom": 13.2, "dur": 6, "label": "梧桐山", "sub": "深圳最高峰 · 鹏城第一峰", "title": {"text": "周末，去爬梧桐山", "pos": "top"}, "hold": 1},
+  {"type": "route", "from": {"name": "泰山涧", "at": "梧桐山泰山涧"}, "to": {"name": "大梧桐 · 山顶", "at": "大梧桐"}, "mode": "walking",
+   "follow": true, "follow_zoom": 1.3, "dur": 13, "elevation": true, "pin_to": "flag", "color": "#ffd23d",
+   "caption": {"text": "泰山涧 → 大梧桐", "sub": "高德步行路线 · 海拔 SRTM"}},
+  {"type": "overview", "dur": 3, "title": {"text": "3.6 km · 爬升 800+ m", "sub": "登顶 ✓", "pos": "bottom"}}
+ ]}

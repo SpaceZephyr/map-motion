@@ -1,0 +1,5 @@
+{"size": "portrait", "style": "satellite",
+ "shots": [
+  {"type": "globe", "to": "桂林公园", "zoom": 16.2, "dur": 7, "label": "桂林公园", "sub": "上海市 · 徐汇区", "title": {"text": "上海 · 桂林公园", "pos": "top"}, "hold": 0.8},
+  {"type": "area", "name": "桂林公园", "dur": 3.5, "label": "桂林公园", "color": "#ffd23d", "caption": {"text": "桂林公园", "sub": "原黄金荣私家花园 · 赏桂胜地"}}
+ ]}
