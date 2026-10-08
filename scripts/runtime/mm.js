@@ -21,6 +21,7 @@ const rng = s => () => ((s = Math.imul(s ^ (s >>> 15), 0x2c1b3c6d) ^ (s + 0x6d2b
 const ST = {
   amap:      { tiles: 'amap', bg: '#f5f3ef', ocean: '#a9cbe8', globeOcean: '#5d9ad6', globeLand: '#f4f1e8', land: '#f2efe9', coast: 'rgba(90,110,130,.45)', prov: 'rgba(120,120,140,.35)', route: '#2f7bf6', route2: '#ff6a3d', casing: '#ffffff', glow: 0, text: '#1d2433', halo: 'rgba(255,255,255,.92)', chip: '#ffffff', chipText: '#1d2433', accent: '#ff4d3d', font: 'MM-Bold', dash: 0 },
   'amap-dark': { tiles: 'amap', tileFilter: 'invert(1) hue-rotate(185deg) brightness(.82) contrast(1.05) saturate(.55)', bg: '#0e1726', ocean: '#0d2236', globeOcean: '#0b1d33', globeLand: '#2a3f5c', land: '#1b2535', coast: 'rgba(120,170,220,.5)', prov: 'rgba(120,170,220,.25)', route: '#36e3ff', route2: '#ffcf3d', casing: 'rgba(0,0,0,.35)', glow: 18, text: '#e9f3ff', halo: 'rgba(8,14,26,.85)', chip: 'rgba(14,26,44,.92)', chipText: '#e9f3ff', accent: '#36e3ff', font: 'MM-Bold', dash: 0 },
+  'satellite-world': { tiles: 'esri', labels: false, bg: '#0b1420', ocean: '#0f2741', land: '#3d4a33', coast: 'rgba(255,255,255,.35)', prov: 'rgba(255,255,255,.3)', route: '#ffd23d', route2: '#ff5a5a', casing: 'rgba(0,0,0,.45)', glow: 14, text: '#ffffff', halo: 'rgba(0,0,0,.7)', chip: 'rgba(10,14,20,.82)', chipText: '#ffffff', accent: '#ffd23d', font: 'MM-Bold', dash: 0 },
   satellite: { tiles: 'sat', labels: true, bg: '#0b1420', ocean: '#0f2741', land: '#3d4a33', coast: 'rgba(255,255,255,.35)', prov: 'rgba(255,255,255,.3)', route: '#ffd23d', route2: '#ff5a5a', casing: 'rgba(0,0,0,.45)', glow: 14, text: '#ffffff', halo: 'rgba(0,0,0,.7)', chip: 'rgba(10,14,20,.82)', chipText: '#ffffff', accent: '#ffd23d', font: 'MM-Bold', dash: 0 },
   dark:      { bg: '#070b14', ocean: '#081120', globeOcean: '#0a1a30', globeLand: '#1f3a5c', land: '#131d2e', coast: 'rgba(80,190,255,.55)', prov: 'rgba(80,190,255,.28)', grid: 'rgba(80,160,255,.07)', route: '#38e8ff', route2: '#ff4fd8', casing: 'rgba(0,0,0,0)', glow: 22, text: '#e6f6ff', halo: 'rgba(5,9,18,.85)', chip: 'rgba(10,22,40,.9)', chipText: '#e6f6ff', accent: '#38e8ff', font: 'MM-Bold', dash: 0 },
   light:     { bg: '#f7f7f4', ocean: '#e4eef5', land: '#ffffff', coast: 'rgba(40,50,70,.35)', prov: 'rgba(40,50,70,.18)', route: '#ff5a36', route2: '#2f6bff', casing: '#ffffff', glow: 0, text: '#151a24', halo: 'rgba(247,247,244,.95)', chip: '#151a24', chipText: '#ffffff', accent: '#ff5a36', font: 'MM-Bold', dash: 0 },
@@ -64,7 +65,7 @@ async function boot() {
   for (const [fam, f] of fonts) { const ff = new FontFace(fam, `url(/asset/fonts/${f}.woff)`); await ff.load(); document.fonts.add(ff); }
   ASSET.land = await (await fetch('/asset/land.json')).json();
   ASSET.china = await (await fetch('/asset/china.json')).json();
-  const imgs = new Set(); for (const L of TL.layers) if (L.image) imgs.add(L.image);
+  const imgs = new Set(); for (const L of TL.layers) { if (L.image) imgs.add(L.image); for (const f of L.frames || []) imgs.add(f); }
   await Promise.all([...imgs].map(u => new Promise((res, rej) => { const im = new Image(); im.onload = () => { IMG[u] = im; res(); }; im.onerror = () => rej(new Error('图片加载失败 ' + u)); im.src = u; })));
   if (S.paper) ASSET.paper = paperTile(S.bg);
   ASSET.globe = await globeTexture();
@@ -72,6 +73,7 @@ async function boot() {
 }
 function tileSources() {
   if (!S.tiles) return [];
+  if (S.tiles === 'esri') return [{ src: 'esri', ts: 256, off: 1, max: 18 }];
   if (S.tiles === 'sat') return [{ src: 'sat', ts: 256, off: 1, max: 18 }].concat(S.labels ? [{ src: 'lbl', ts: 512, off: 0, max: 18 }] : []);
   return [{ src: 'amap', ts: 512, off: 0, max: 18 }];
 }
@@ -216,8 +218,8 @@ function drawTiles() {
 // 卫星样式用高德卫星瓦片 z=3 拼成的墨卡托纹理（真实地表）；其它样式把陆地矢量画进等经纬度纹理。
 async function globeTexture() {
   const TW = 4096, TH = S.tiles === 'sat' ? 2048 : 2048, cv2 = document.createElement('canvas'); cv2.width = TW; cv2.height = TH; const g = cv2.getContext('2d');
-  if (S.tiles === 'sat') {
-    const n = 8, ims = await Promise.all([...Array(n * n)].map((_, i) => loadTile('sat', 3, i % n, Math.floor(i / n))));
+  if (S.tiles === 'sat' || S.tiles === 'esri') {
+    const n = 8, ims = await Promise.all([...Array(n * n)].map((_, i) => loadTile(S.tiles, 3, i % n, Math.floor(i / n))));
     g.fillStyle = '#0b1e33'; g.fillRect(0, 0, TW, TH);
     ims.forEach((im, i) => im && g.drawImage(im, (i % n) * TW / n, Math.floor(i / n) * TH / n, TW / n + 1, TH / n + 1));
     return { cv: cv2, data: g.getImageData(0, 0, TW, TH).data, TW, TH, merc: true };
@@ -268,7 +270,7 @@ function drawGlobe(t, alpha) {
   for (let lng = -180; lng < 180; lng += 20) { c.beginPath(); let s = false; for (let lat = -88; lat <= 88; lat += 4) { const p = G([lng, lat]); if (!p) { s = false; continue; } s ? c.lineTo(...p) : c.moveTo(...p); s = true; } c.stroke(); }
   for (let lat = -60; lat <= 60; lat += 20) { c.beginPath(); let s = false; for (let lng = -180; lng <= 180; lng += 4) { const p = G([lng, lat]); if (!p) { s = false; continue; } s ? c.lineTo(...p) : c.moveTo(...p); s = true; } c.stroke(); }
   // 海岸线只描线（填色已由逐像素完成）：背面的点断开，不贴地平圈
-  if (S.tiles !== 'sat') { c.strokeStyle = S.coast; c.lineWidth = 1.2 * U; for (const r of ASSET.land) { if (!r.some(ll => G(ll))) continue; polyPath([r], G, false); c.stroke(); } }
+  if (S.tiles !== 'sat' && S.tiles !== 'esri') { c.strokeStyle = S.coast; c.lineWidth = 1.2 * U; for (const r of ASSET.land) { if (!r.some(ll => G(ll))) continue; polyPath([r], G, false); c.stroke(); } }
   drawChina(G, false);
   // 明暗：左上亮右下暗
   const sh = c.createRadialGradient(cx - R * 0.4, cy - R * 0.45, R * 0.2, cx, cy, R * 1.05); sh.addColorStop(0, S.glow ? 'rgba(255,255,255,.04)' : 'rgba(255,255,255,.12)');   // 暗色样式高光要轻，不然整球发雾 sh.addColorStop(0.7, 'rgba(0,0,0,0)'); sh.addColorStop(1, 'rgba(0,0,20,.35)');
@@ -342,7 +344,12 @@ function pin(L, t) {
   if (fade <= 0) return; c.save(); c.globalAlpha = fade;
   for (let k = 0; k < 2; k++) { const ph = ((lt - 0.4) * 0.8 + k * 0.5) % 1; if (lt < 0.4) break; c.strokeStyle = col; c.globalAlpha = fade * 0.6 * (1 - ph); c.lineWidth = 3 * U; c.beginPath(); c.ellipse(x, y, (10 + 60 * ph) * U, (5 + 26 * ph) * U, 0, 0, 7); c.stroke(); }
   c.globalAlpha = fade;
-  if (L.kind === 'dot' || S.glow) {
+  if (L.kind === 'camera') {                                      // 机位：相机图标＋下方小尖
+    c.save(); c.translate(x, yy); c.scale(U, U); c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 14; c.fillStyle = col;
+    c.beginPath(); c.moveTo(-9, -16); c.lineTo(0, 0); c.lineTo(9, -16); c.fill(); rr(-30, -58, 60, 42, 9); c.fill(); rr(-12, -66, 24, 10, 3); c.fill(); c.shadowBlur = 0;
+    c.fillStyle = '#111'; c.beginPath(); c.arc(0, -37, 14, 0, 7); c.fill(); c.strokeStyle = '#fff'; c.lineWidth = 3; c.beginPath(); c.arc(0, -37, 10, 0, 7); c.stroke();
+    c.fillStyle = '#fff'; c.beginPath(); c.arc(20, -50, 3, 0, 7); c.fill(); c.restore();
+  } else if (L.kind === 'dot' || S.glow) {
     c.shadowColor = col; c.shadowBlur = 20 * U; c.fillStyle = col; c.beginPath(); c.arc(x, yy, 11 * U, 0, 7); c.fill(); c.shadowBlur = 0; c.fillStyle = '#fff'; c.beginPath(); c.arc(x, yy, 5 * U, 0, 7); c.fill();
   } else if (L.kind === 'flag') {                                        // 山顶旗：旗面飘动
     c.save(); c.translate(x, yy); c.scale(U, U); c.strokeStyle = '#2b2b2b'; c.lineWidth = 4; c.beginPath(); c.moveTo(0, 0); c.lineTo(0, -78); c.stroke();
@@ -472,7 +479,7 @@ function reticle(L, t) {
   c.restore();
 }
 // 坐标卡：地名打字、经纬度数字滚动、海拔、日期
-function dms(v, pos, neg) { const s = v < 0 ? neg : pos; v = Math.abs(v); const d = Math.floor(v), mf = (v - d) * 60, m = Math.floor(mf), sec = (mf - m) * 60; return `${d}°${String(m).padStart(2, '0')}′${sec.toFixed(1).padStart(4, '0')}″${s}`; }
+function dms(v, pos, neg) { const s = v < 0 ? neg : pos, ts = Math.round(Math.abs(v) * 36000), d = Math.floor(ts / 36000), m = Math.floor(ts % 36000 / 600), sec = ts % 600 / 10; return `${d}°${String(m).padStart(2, '0')}′${sec.toFixed(1).padStart(4, '0')}″${s}`; }   // 按 0.1″ 取整再拆，避免 08′60.0″
 function coordcard(L, t) {
   const lt = t - L.t0, out = L.t_out != null ? clamp((t - L.t_out) / 0.35) : 0; if (out >= 1) return;
   const roll = E.out(lt / 1.1), lat = L.lnglat[1] * roll, lng = L.lnglat[0] * roll, e = E.out(lt / 0.45);
@@ -490,8 +497,142 @@ function coordcard(L, t) {
   if (bits.length) { c.font = `${28 * U}px "MM-Num"`; c.globalAlpha *= 0.7; c.fillText(bits.join('   ·   '), tx, y + 44 * U); }
   c.restore();
 }
-const DRAW = { route, pin, region, title: hudTitle, odometer, caption, photo, profile, reticle, coordcard };
-const ORDER = { region: 0, route: 1, pin: 2, reticle: 3, caption: 3, odometer: 3, profile: 3, coordcard: 4, title: 4, photo: 5 };
+// 「这张照片在哪拍的？」：整屏照片（背后同图虚化铺满）＋问题＋逐条提示＋倒数圈；结束时照片缩小淡出、闪白，露出地球
+function quiz(L, t) {
+  const im = IMG[L.image]; if (!im) return; const lt = t - L.t0, out = L.t_out != null ? clamp((t - L.t_out) / 0.6) : 0; if (out >= 1) return;
+  const col = L.color || '#ffd23d', oe = E.inOut(out);
+  c.save();
+  // 底：同一张图铺满、虚化压暗
+  c.globalAlpha = 1 - oe; const bs = Math.max(W / im.width, H / im.height) * 1.15;
+  c.filter = `blur(${36 * U}px) brightness(0.42)`; c.drawImage(im, W / 2 - im.width * bs / 2, H / 2 - im.height * bs / 2, im.width * bs, im.height * bs); c.filter = 'none';
+  // 主图：白边卡片，缓慢推近；退场时缩小
+  const landscape = W > H, pw = landscape ? W * 0.56 : W - 80 * U, ph = Math.min(pw * im.height / im.width, landscape ? H * 0.6 : H * 0.42);
+  const cy = landscape ? H * 0.5 : H * 0.47, ein = E.out(lt / 0.6), sc = (0.92 + 0.08 * ein) * (1 - 0.75 * oe);
+  c.save(); c.translate(W / 2, cy + (1 - ein) * 60 * U); c.scale(sc, sc); c.rotate(-0.012 * (1 - oe));
+  c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = 40 * U; c.shadowOffsetY = 16 * U; c.fillStyle = '#fbfaf6'; const bd = 14 * U;
+  c.fillRect(-pw / 2 - bd, -ph / 2 - bd, pw + 2 * bd, ph + 2 * bd); c.shadowColor = 'transparent';
+  c.beginPath(); c.rect(-pw / 2, -ph / 2, pw, ph); c.clip(); const ks = Math.max(pw / im.width, ph / im.height) * (1 + 0.05 * clamp(lt / 8));
+  c.drawImage(im, -im.width * ks / 2, -im.height * ks / 2, im.width * ks, im.height * ks); c.restore();
+  // 问题
+  const ta = E.out((lt - 0.2) / 0.5) * (1 - oe), topY = landscape ? H * 0.1 : cy - ph / 2 - 250 * U;
+  c.globalAlpha = ta; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.fillStyle = col;
+  c.font = `${30 * U}px "MM-Num"`; c.letterSpacing = `${10 * U}px`; c.fillText(L.kicker, W / 2, topY); c.letterSpacing = '0px';
+  c.fillStyle = '#fff'; c.font = FONT('MM-Black', landscape ? 76 : 88); c.fillText(L.text, W / 2, topY + 110 * U);
+  if (L.sub) { c.font = FONT('MM-Bold', 38); c.globalAlpha = ta * 0.8; c.fillText(L.sub, W / 2, topY + 175 * U); }
+  // 提示：逐条弹出
+  let hy = cy + ph / 2 + 110 * U;
+  (L.hints || []).forEach((h, k) => { const ha = E.back(clamp((lt - L.hint_t[k]) / 0.4)); if (ha <= 0) return;
+    c.save(); c.globalAlpha = clamp(ha) * (1 - oe); c.font = FONT('MM-Bold', 38); const tw = c.measureText(h).width + 70 * U;
+    c.translate(W / 2, hy); c.scale(0.8 + 0.2 * ha, 0.8 + 0.2 * ha); c.fillStyle = 'rgba(255,255,255,.14)'; rr(-tw / 2, -46 * U, tw, 70 * U, 35 * U); c.fill();
+    c.fillStyle = '#fff'; c.fillText(h, 0, 2 * U); c.restore(); hy += 92 * U; });
+  // 倒数圈
+  const ct = lt - L.count_t0;
+  if (ct > 0 && out === 0) { const n = Math.min(L.count, Math.ceil(L.count - ct)), f = ct % 1, r = 78 * U, ry = landscape ? H * 0.86 : Math.max(hy + 90 * U, H * 0.82);
+    c.globalAlpha = 1; c.lineWidth = 10 * U; c.strokeStyle = 'rgba(255,255,255,.18)'; c.beginPath(); c.arc(W / 2, ry, r, 0, 7); c.stroke();
+    c.strokeStyle = col; c.lineCap = 'round'; c.beginPath(); c.arc(W / 2, ry, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - ct / L.count)); c.stroke();
+    const pop = 1 + 0.35 * (1 - E.out(f / 0.35)); c.save(); c.translate(W / 2, ry); c.scale(pop, pop); c.fillStyle = '#fff'; c.textBaseline = 'middle'; c.font = `${96 * U}px "MM-Num"`; c.fillText(String(Math.max(1, n)), 0, 6 * U); c.restore(); }
+  // 退场闪白
+  if (out > 0) { c.globalAlpha = 0.85 * (1 - clamp(out / 0.5)) * clamp(out / 0.08); c.fillStyle = '#fff'; c.fillRect(0, 0, W, H); }
+  c.restore();
+}
+// 取景扇形：从机位扫向被摄地，渐隐
+function cone(L, t) {
+  const pa = PROJ(L.a), pb = PROJ(L.b); if (!pa || !pb) return; const lt = t - L.t0, d = E.inOut(lt / (L.draw || 1));
+  const col = L.color || S.accent, ang = Math.atan2(pb[1] - pa[1], pb[0] - pa[0]), len = Math.hypot(pb[0] - pa[0], pb[1] - pa[1]) * 1.15, h = (L.fov || 34) * Math.PI / 360;
+  c.save(); const g = c.createRadialGradient(pa[0], pa[1], 0, pa[0], pa[1], len); g.addColorStop(0, col + 'aa'); g.addColorStop(1, col + '00');
+  c.fillStyle = g; c.beginPath(); c.moveTo(pa[0], pa[1]); c.arc(pa[0], pa[1], len * d, ang - h, ang + h); c.closePath(); c.fill();
+  c.strokeStyle = col; c.lineWidth = 2.5 * U; c.setLineDash([12 * U, 9 * U]); c.globalAlpha = 0.9;
+  for (const s of [-h, h]) { c.beginPath(); c.moveTo(pa[0], pa[1]); c.lineTo(pa[0] + Math.cos(ang + s) * len * d, pa[1] + Math.sin(ang + s) * len * d); c.stroke(); }
+  c.setLineDash([]); c.restore();
+}
+// 咔嚓：取景框对焦 → 快门帘 → 闪白 → 背景虚化 → 照片从机位翻折立起（逐行透视）
+let SNAPBUF = null, CARD = {};
+function snapCard(L, im) {
+  if (CARD[L.image]) return CARD[L.image];
+  let pw = (W > H ? 0.5 * W : W - 150 * U) - 36 * U, ph = pw * im.height / im.width; const cap = H * (W > H ? 0.62 : 0.5);   // 竖图限高，免得相纸顶出画面
+  if (ph > cap) { pw *= cap / ph; ph = cap; } const cw = pw + 36 * U, chh = ph + 36 * U + 120 * U;
+  const cv = document.createElement('canvas'); cv.pr = [18 * U, 18 * U, pw, ph]; cv.width = cw; cv.height = chh; const g = cv.getContext('2d');
+  g.fillStyle = '#fbfaf6'; g.fillRect(0, 0, cw, chh); g.drawImage(im, 18 * U, 18 * U, pw, ph);
+  g.fillStyle = 'rgba(0,0,0,.06)'; g.fillRect(18 * U, 18 * U, pw, 2 * U);
+  if (L.name) { g.fillStyle = '#2b241c'; g.font = `${50 * U}px "MM-Hand", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(L.name, cw / 2, 18 * U + ph + 66 * U); }
+  return CARD[L.image] = cv;
+}
+// Live Photo：相纸上画 LIVE 角标；播放段用视频帧（或静态照片模拟：推近＋手持晃动），首尾虚化，结束回到封面帧
+let LIVECV = null;
+function liveBadge(g, x, y, a, spin) {
+  g.save(); g.globalAlpha = a; g.font = `${24 * U}px "MM-Bold", sans-serif`; const tw = g.measureText('LIVE').width, w = tw + 74 * U, h = 44 * U;
+  g.fillStyle = 'rgba(30,30,30,.42)'; g.save(); g.beginPath(); g.moveTo(x + h / 2, y); g.arcTo(x + w, y, x + w, y + h, h / 2); g.arcTo(x + w, y + h, x, y + h, h / 2); g.arcTo(x, y + h, x, y, h / 2); g.arcTo(x, y, x + w, y, h / 2); g.closePath(); g.fill(); g.restore();
+  const cx = x + 26 * U, cy = y + h / 2; g.fillStyle = g.strokeStyle = '#fff';
+  g.beginPath(); g.arc(cx, cy, 4 * U, 0, 7); g.fill(); g.lineWidth = 2 * U; g.beginPath(); g.arc(cx, cy, 8.5 * U, 0, 7); g.stroke();
+  for (let i = 0; i < 16; i++) { const an = i / 16 * Math.PI * 2 + spin; g.beginPath(); g.arc(cx + Math.cos(an) * 13.5 * U, cy + Math.sin(an) * 13.5 * U, 1.3 * U, 0, 7); g.fill(); }
+  g.textBaseline = 'middle'; g.textAlign = 'left'; g.fillText('LIVE', x + 48 * U, cy + 1 * U); g.restore();
+}
+function liveCard(L, im, base, k) {
+  if (!L.live) return base;
+  if (!LIVECV) { LIVECV = document.createElement('canvas'); LIVECV.width = base.width; LIVECV.height = base.height; }
+  const g = LIVECV.getContext('2d'), [x, y, pw, ph] = base.pr, lp = (k - L.live_t) / L.live_dur, back = clamp((lp * L.live_dur - L.live_dur) / 0.45);
+  g.clearRect(0, 0, LIVECV.width, LIVECV.height); g.drawImage(base, 0, 0);
+  if (lp > 0 && back < 1) {
+    let fr = im, z = 1, dx = 0, dy = 0, rot = 0; const env = Math.sin(Math.PI * clamp(lp));
+    if (L.frames && L.frames.length) fr = IMG[L.frames[Math.min(L.frames.length - 1, Math.floor(clamp(lp) * L.frames.length))]] || im;
+    else { z = 1 + 0.06 * E.inOut(clamp(lp)) * (1 - back); dx = (Math.sin(k * 11.3) * 0.6 + Math.sin(k * 6.1 + 1)) * 5 * U * env; dy = (Math.sin(k * 9.7 + 2) * 0.6 + Math.sin(k * 4.9)) * 4 * U * env; rot = Math.sin(k * 3.3) * 0.004 * env; }
+    const bl = lp < 0.12 ? (1 - lp / 0.12) * 10 : back > 0 ? (1 - back) * 6 : 0;
+    g.save(); g.beginPath(); g.rect(x, y, pw, ph); g.clip(); g.globalAlpha = 1 - E.inOut(back);
+    if (bl > 0.1) g.filter = `blur(${bl * U}px)`;
+    const sc = Math.max(pw / fr.width, ph / fr.height) * z; g.translate(x + pw / 2 + dx, y + ph / 2 + dy); g.rotate(rot); g.drawImage(fr, -fr.width * sc / 2, -fr.height * sc / 2, fr.width * sc, fr.height * sc); g.restore();
+  }
+  liveBadge(g, x + 22 * U, y + 22 * U, E.out((k - 1.3) / 0.4), lp > 0 && back < 1 ? k * 2.2 : 0);
+  return LIVECV;
+}
+function snap(L, t) {
+  const im = IMG[L.image]; if (!im) return; const lt = t - L.t0, ts = L.ts - L.t0, k = lt - ts, col = L.color || S.accent, land = W > H;
+  // 1) 背景虚化（快门之后）
+  if (k > 0.12) { const b = E.out((k - 0.12) / 0.6);
+    if (!SNAPBUF) { SNAPBUF = document.createElement('canvas'); SNAPBUF.width = W; SNAPBUF.height = H; }
+    const g = SNAPBUF.getContext('2d'); g.clearRect(0, 0, W, H); g.drawImage(c.canvas, 0, 0);
+    c.save(); c.filter = `blur(${30 * U * b}px) brightness(${1 - 0.5 * b}) saturate(${1 - 0.3 * b})`; c.drawImage(SNAPBUF, 0, 0);
+    const pb = E.inOut((k - 0.3) / 0.9), bs = Math.max(W / im.width, H / im.height) * (1.25 - 0.08 * clamp((k - 0.3) / 6));     // 再淡入同一张照片的虚化铺满（天空、雪顶的颜色），缓慢推远
+    if (pb > 0) { c.globalAlpha = pb; c.filter = `blur(${44 * U}px) brightness(.62) saturate(1.15)`; c.drawImage(im, W / 2 - im.width * bs / 2, H / 2 - im.height * bs / 2, im.width * bs, im.height * bs); }
+    c.filter = 'none'; c.restore(); }
+  // 2) 取景框（快门前出现，快门后淡出）
+  const vfA = clamp(lt / 0.35) * (1 - clamp((k - 0.1) / 0.3));
+  if (vfA > 0) { const fw = land ? H * 0.9 * 1.5 : W - 120 * U, fh = Math.min(fw * im.height / im.width, H * 0.8), sc = 1 + 0.08 * (1 - E.out(lt / 0.5)), cx = W / 2, cy = H / 2;
+    c.save(); c.globalAlpha = vfA; c.translate(cx, cy); c.scale(sc, sc); c.strokeStyle = '#fff'; c.lineWidth = 4 * U; const x0 = -fw / 2, y0 = -fh / 2, kk = 56 * U;
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { c.beginPath(); c.moveTo(sx * fw / 2, sy * (fh / 2 - kk)); c.lineTo(sx * fw / 2, sy * fh / 2); c.lineTo(sx * (fw / 2 - kk), sy * fh / 2); c.stroke(); }
+    c.lineWidth = 1.5 * U; c.globalAlpha = vfA * 0.4; for (const f of [1 / 3, 2 / 3]) { c.beginPath(); c.moveTo(x0 + fw * f, y0); c.lineTo(x0 + fw * f, -y0); c.moveTo(x0, y0 + fh * f); c.lineTo(-x0, y0 + fh * f); c.stroke(); }
+    const ok = lt > ts - 0.45, af = lerp(120, 64, E.out((lt - 0.3) / (ts - 0.8))) * U * (ok ? 1 + 0.12 * Math.max(0, 1 - (lt - ts + 0.45) / 0.15) : 1);
+    c.globalAlpha = vfA * (ok || Math.floor(lt * 8) % 2 ? 1 : 0.35); c.strokeStyle = ok ? '#4dff7a' : '#fff'; c.lineWidth = 3 * U; c.strokeRect(-af / 2, -af / 2, af, af);
+    c.globalAlpha = vfA; c.fillStyle = '#fff'; c.font = `${28 * U}px "MM-Num"`; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText(L.exif || '', x0 + 8 * U, -y0 + 50 * U);
+    c.textAlign = 'right'; c.fillStyle = ok ? '#4dff7a' : '#fff'; c.fillText(ok ? '● AF  OK' : '○ AF', -x0 - 8 * U, -y0 + 50 * U);
+    c.restore(); }
+  // 3) 照片翻折立起：底边为轴，从平躺在机位上 → 立正面向镜头（逐行透视）
+  const f = clamp((k - 0.18) / 1.15);
+  if (f > 0) { const cv = liveCard(L, im, snapCard(L, im), k), CW = cv.width, CH = cv.height, a0 = L.anchor && P(L.anchor);
+    const lq = L.live ? (k - L.live_t) : -1, press = L.live ? (lq < 0 ? 0 : lq < 0.18 ? -0.025 * Math.sin(Math.PI * lq / 0.18) : 0.03 * E.inOut(clamp((lq - 0.18) / 0.4)) * (1 - E.inOut(clamp((lq - L.live_dur) / 0.45)))) : 0;
+    const mv = E.out(f), phi = Math.PI / 2 * E.back(f), sc = lerp(0.3, 1, mv) * (1 + press), fl = Math.sin(Math.max(0, k - 1.4) * 1.6) * 6 * U;
+    const ex = W / 2, ey = (land ? H * 0.5 : H * 0.47) + CH / 2, px = lerp(a0 ? a0[0] : W / 2, ex, mv), py = lerp(a0 ? a0[1] : H / 2, ey, mv) + fl;
+    const D = 1600 * U, HZ = 420 * U, N = 160, row = i => { const s = (1 - i / N) * CH, z = s * Math.cos(phi), kk = D / (D + z); return [py + (-s * Math.sin(phi) * kk - (1 - kk) * HZ) * sc, kk]; };
+    c.save(); c.globalAlpha = clamp(f / 0.12);
+    c.fillStyle = 'rgba(0,0,0,.35)'; c.filter = `blur(${24 * U}px)`; c.beginPath(); c.ellipse(px, py + 14 * U * sc, CW * 0.5 * sc, 26 * U * sc * Math.sin(phi), 0, 0, 7); c.fill(); c.filter = 'none';
+    let prev = row(0);
+    for (let i = 0; i < N; i++) { const nx = row(i + 1), w = CW * sc * (prev[1] + nx[1]) / 2; c.drawImage(cv, 0, i * CH / N, CW, CH / N, px - w / 2, prev[0], w, nx[0] - prev[0] + 0.9); prev = nx; }
+    const top = row(0), bot = row(N), shade = Math.cos(phi) * 0.45;
+    c.beginPath(); c.moveTo(px - CW * sc * top[1] / 2, top[0]); c.lineTo(px + CW * sc * top[1] / 2, top[0]); c.lineTo(px + CW * sc / 2, bot[0]); c.lineTo(px - CW * sc / 2, bot[0]); c.closePath();
+    if (shade > 0.01) { c.fillStyle = `rgba(0,0,0,${shade})`; c.fill(); }
+    const sw = clamp((k - 1.25) / 0.9); if (sw > 0 && sw < 1) { c.save(); c.clip(); const gx = lerp(-CW, CW * 1.6, sw) * sc + px - CW * sc / 2, gr = c.createLinearGradient(gx - 160 * U, top[0], gx + 160 * U, bot[0]);
+      gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.5, 'rgba(255,255,255,.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = gr; c.fillRect(0, 0, W, H); c.restore(); }
+    // 卡片下方：坐标与说明
+    const ia = E.out((k - 1.2) / 0.5); if (ia > 0) { c.globalAlpha = ia; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.fillStyle = '#fff'; const y = bot[0] + 90 * U + (1 - ia) * 20 * U;
+      c.font = `${40 * U}px "MM-Num"`; c.fillText(`${dms(L.lnglat[1], 'N', 'S')}   ${dms(L.lnglat[0], 'E', 'W')}`, W / 2, y);
+      if (L.sub) { c.font = FONT('MM-Bold', 36); c.globalAlpha = ia * 0.8; c.fillText(L.sub, W / 2, y + 60 * U); } }
+    c.restore(); }
+  // 4) 快门帘（上下合拢再张开）＋闪白
+  if (k > -0.02 && k < 0.5) { c.save(); const cl = k < 0.07 ? clamp((k + 0.02) / 0.09) ** 2 : 1 - E.out(clamp((k - 0.07) / 0.13));
+    c.fillStyle = '#000'; c.fillRect(0, 0, W, H / 2 * cl); c.fillRect(0, H - H / 2 * cl, W, H / 2 * cl);
+    if (k > 0.08) { c.globalAlpha = 0.9 * (1 - clamp((k - 0.08) / 0.4)); c.fillStyle = '#fff'; c.fillRect(0, 0, W, H); } c.restore(); }
+}
+const DRAW = { route, pin, region, cone, title: hudTitle, odometer, caption, photo, profile, reticle, coordcard, quiz, snap };
+const ORDER = { region: 0, cone: 0.5, route: 1, pin: 2, reticle: 3, caption: 3, odometer: 3, profile: 3, coordcard: 4, title: 4, photo: 5, quiz: 6, snap: 7 };
 
 // ================= 帧
 window.renderFrame = t => {
@@ -499,7 +640,7 @@ window.renderFrame = t => {
   c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; background();
   const gA = CAM.globe, fA = 1 - gA;
   const layers = TL.layers.filter(L => on(L, t)).sort((a, b) => (ORDER[a.type] ?? 9) - (ORDER[b.type] ?? 9));
-  const mapLayers = layers.filter(L => ['route', 'pin', 'region'].includes(L.type)), hud = layers.filter(L => !['route', 'pin', 'region'].includes(L.type));
+  const mapLayers = layers.filter(L => ['route', 'pin', 'region', 'cone'].includes(L.type)), hud = layers.filter(L => !['route', 'pin', 'region', 'cone'].includes(L.type));
   if (fA > 0) { c.save(); c.globalAlpha = fA; drawFlat(t); PROJ = P; for (const L of mapLayers) DRAW[L.type](L, t); c.restore(); }
   if (gA > 0) { drawGlobe(t, gA); PROJ = (ll) => G(ll); c.save(); c.globalAlpha = gA; for (const L of mapLayers) DRAW[L.type](L, t); c.restore(); }
   PROJ = P;
@@ -508,7 +649,7 @@ window.renderFrame = t => {
   const vg = c.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.45, W / 2, H / 2, Math.max(W, H) * 0.75); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, S.glow ? 'rgba(0,0,0,.45)' : 'rgba(40,30,20,.18)');
   c.fillStyle = vg; c.fillRect(0, 0, W, H);
   for (const L of hud) DRAW[L.type](L, t);
-  if (TL.attribution !== false && S.tiles) { c.save(); c.font = FONT('MM-Bold', 20); c.fillStyle = S.glow ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.45)'; c.textAlign = 'right'; c.fillText('© 高德地图 AutoNavi', W - 20 * U, H - 24 * U); c.restore(); }
+  if (TL.attribution !== false && S.tiles) { c.save(); c.font = FONT('MM-Bold', 20); c.fillStyle = S.glow ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.45)'; c.textAlign = 'right'; c.fillText(S.tiles === 'esri' ? 'Imagery © Esri, Maxar, Earthstar Geographics' : '© 高德地图 AutoNavi', W - 20 * U, H - 24 * U); c.restore(); }
 };
 boot().catch(e => { window.__bootFailed = String(e && e.stack || e); console.error(window.__bootFailed); });
 })();

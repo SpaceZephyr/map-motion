@@ -101,6 +101,24 @@
 - `overview: false`：不先展示全程
 - `elevation: true`：每段配海拔剖面卡（高原骑行、翻山自驾）
 
+### snap — 咔嚓（机位揭秘）
+地球俯冲到机位和被摄地之间 → 机位落相机图标、被摄地落针 → 取景扇形从机位扫向被摄地 → 取景框对焦（AF 变绿）→ 快门帘合拢＋闪白＋快门声 → 照片从机位处平躺翻折立起（逐行透视，略过冲回正），背景从虚化地图过渡到这张照片自身的虚化。约 13 秒。
+```json
+{"type": "snap", "camera": {"name": "机位", "at": [138.735, 35.14]}, "target": {"name": "富士山", "at": [138.7274, 35.3606]},
+ "target_sub": "3776 m", "image": "photo.png", "dur": 6.5, "spin": -100, "fov": 30, "focus": 1.6, "hold": 4.2,
+ "name": "相纸下沿手写字", "sub": "卡片下方说明（缺省：距被摄地 N km）", "exif": "ISO 100   1/2000   f/8   135mm"}
+```
+Live Photo：`"live": true` 用静态照片模拟（相纸立起后出 LIVE 角标 → 按下微缩 → 推近＋手持晃动 2.4 秒，首尾虚化 → 回到封面）；`"live": "IMG_1234.MOV"` 用真 Live Photo 的视频（抽前 3 秒、带原声）。`live_at` 调播放开始时刻（相对快门，缺省 1.9 秒）。iPhone 导出：照片 App →「导出未修改的原件」得到 HEIC + MOV；`image` 用 HEIC 转出的 JPG 作封面。
+快门声：timeline 里记下 `sfx`，render.py 在没给 `--audio` 时自动合成音轨；要配乐就自己混好再传 `--audio`。
+
+### guess — 猜地点（照片先出，再揭晓）
+整屏照片（背后同图虚化）→ 问题 → 提示逐条弹出 → 倒数圈 → 照片缩走、闪白，露出地球。后面紧接 `locate`（`to`、`spin` 和它写成一样，镜头无缝衔接）。
+```json
+{"type": "guess", "to": [138.695, 35.15], "image": "photo.png", "dur": 6.8, "spin": -100,
+ "text": "这张照片在哪拍的？", "sub": "精确到公里", "hints": ["提示 1：…", "提示 2：…"], "count": 3, "kicker": "GUESS WHERE"}
+```
+`locate` 后面还有镜头时写 `"card_out": true`，坐标卡在这一镜结束时收起。
+
 ### overview — 回到全景
 镜头框住到目前为止出现过的所有地点。片尾收束。`{"type": "overview", "dur": 2.5}`
 

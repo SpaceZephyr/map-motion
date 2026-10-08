@@ -1,0 +1,37 @@
+{
+ "size": "portrait",
+ "style": "satellite",
+ "tail": 0.4,
+ "shots": [
+  {
+   "type": "snap",
+   "camera": {
+    "name": "钓鱼翁",
+    "at": [
+     114.290586,
+     22.292909
+    ]
+   },
+   "target": {
+    "name": "布袋澳",
+    "at": [
+     114.300485,
+     22.272561
+    ]
+   },
+   "camera_label": "钓鱼翁 · 山顶",
+   "target_sub": "西贡 · 渔村",
+   "image": "photo.jpg",
+   "dur": 6.5,
+   "spin": -110,
+   "fov": 40,
+   "frame": 0.42,
+   "focus": 1.6,
+   "hold": 4.2,
+   "live": true,
+   "exif": "ISO 64   1/500   f/1.8   24mm",
+   "name": "钓鱼翁 · 俯瞰布袋澳",
+   "sub": "香港西贡 · 清水湾半岛"
+  }
+ ]
+}

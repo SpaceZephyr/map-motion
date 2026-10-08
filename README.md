@@ -48,9 +48,16 @@
 
 `showcase.json` · `flight.json` · `region.json` · `radiate.json`
 
-## 12 种风格
+### 6. 找机位：照片从地图上「咔嚓」翻出来（子 skill `photo-spot`）
+给一张照片：卫星地球俯冲 → 相机图标落在拍照机位、被摄地落针 → 取景扇形扫过去 → 取景框对焦 → 快门声＋闪白 → 照片从机位处 3D 翻折立起，背景是照片自身的虚化；可加 iPhone Live Photo 播放效果（用真 MOV，或静态照片模拟）。照片带 GPS 时自动读出机位、朝向、焦距和参数。
 
-同一份镜头表，改一个 `style` 字段就换风格。前 5 种直接用高德瓦片（能推到街道级），后 7 种用代码绘制矢量底图（全国到地级市尺度）。
+<img src="docs/media/photo_spot_fuji.webp" width="200" alt="富士山 × 新干线：机位揭秘"> <img src="docs/media/photo_spot_yubeng_live.webp" width="200" alt="雨崩神瀑：Live Photo 效果"> <img src="docs/media/photo_spot_highjunk_live.webp" width="200" alt="香港钓鱼翁俯瞰布袋澳">
+
+富士山 × 新干线（境外，Esri 卫星）· 雨崩神瀑 → 卡瓦格博（Live Photo 模拟）· 香港钓鱼翁 → 布袋澳。`photo-spot/`（安装见下）· 示例 spec 在 `photo-spot/examples/`
+
+## 13 种风格
+
+同一份镜头表，改一个 `style` 字段就换风格。前 5 种直接用高德瓦片、`satellite-world` 用 Esri 卫星（能推到街道级），后 7 种用代码绘制矢量底图（全国到地级市尺度）。
 
 ![12 种风格：辐射飞线](docs/media/gallery_radiate.jpg)
 ![12 种风格：地球](docs/media/gallery_globe.jpg)
@@ -62,6 +69,7 @@
 | `amap-gray` | 高德灰 | 数据可视化、新闻图解 |
 | `amap-sepia` | 高德复古 | 怀旧、城市故事 |
 | `satellite` | 卫星（地球也是真实卫星图） | 片头俯冲、户外、登山 |
+| `satellite-world` | Esri 全球卫星 | **境外地点**（高德卫星境外推近无影像） |
 | `dark` | 暗色科技 | 业务分布、数据大屏 |
 | `light` | 极简白 | 区域介绍、信息图 |
 | `journal` | 水彩手账 | 旅行复盘 |
@@ -70,7 +78,7 @@
 | `ink` | 国风水墨 | 文旅、历史路线 |
 | `blueprint` | 工程蓝图 | 规划、工程、科普 |
 
-## 11 种镜头
+## 13 种镜头
 
 | type | 效果 |
 |---|---|
@@ -85,6 +93,8 @@
 | `trip` | 多站旅程：逐段路线、累计里程、邮戳、照片、返程 |
 | `overview` | 拉回全景，框住所有出现过的地点 |
 | `title` | 标题卡 |
+| `snap` | 机位揭秘：相机图标＋取景扇形 → 对焦 → 咔嚓 → 照片 3D 翻折立起，可选 Live Photo（`photo-spot` 用的就是它） |
+| `guess` | 「这张照片在哪拍的？」：整屏照片＋提示＋倒数，再接 `locate` 揭晓 |
 
 镜头之间自动「飞过去」：远距离先拉远再推近，和 Mapbox `flyTo` 同一套公式，不用手写转场。完整参数见 [references/spec.md](references/spec.md)。
 
@@ -97,6 +107,11 @@ git clone https://github.com/SpaceZephyr/map-motion ~/.claude/skills/map-motion
 uv run --with playwright playwright install chromium     # 首次：无头浏览器
 ```
 依赖：[uv](https://docs.astral.sh/uv/)、ffmpeg。
+
+要用「找机位」子 skill，再链接一下（它复用 map-motion 的渲染引擎）：
+```sh
+ln -s ~/.claude/skills/map-motion/photo-spot ~/.claude/skills/photo-spot
+```
 
 **2. 配高德 key**（高德开放平台 → 应用管理 → 添加「Web服务」类型 key，免费）
 
@@ -172,10 +187,11 @@ timeline.json
 - [Natural Earth](https://www.naturalearthdata.com) / [world-atlas](https://github.com/topojson/world-atlas)：世界陆地轮廓
 - [OpenStreetMap](https://www.openstreetmap.org)（Overpass API）：公园、景区等地块轮廓 © OpenStreetMap contributors，ODbL
 - [OpenTopoData](https://www.opentopodata.org)：SRTM 30m 海拔
+- [Esri World Imagery](https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9)：境外卫星影像（`satellite-world`），© Esri, Maxar, Earthstar Geographics
 
 ## 使用边界
 
-- **高德瓦片**：渲染时直接取高德瓦片，属于非官方用法。个人视频、学习交流可用，成片右下角保留「© 高德地图」署名；**商业投放需要高德的商业授权**，或改用 7 种矢量风格。
+- **高德瓦片**：渲染时直接取高德瓦片，属于非官方用法。个人视频、学习交流可用，成片右下角保留「© 高德地图」署名；**商业投放需要高德的商业授权**，或改用 7 种矢量风格。`satellite-world` 的 Esri 影像同理：个人非商业可用并保留署名，商用需 Esri 授权。
 - **地图合规**：中国边界按内置数据绘制（含台湾、南海诸岛与九段线），请勿删改；对外商用的地图内容在国内受《地图管理条例》约束。
 - **海拔**：SRTM 是约 30 米网格的平均高程，山顶会比实际略低（梧桐山顶实测 944 m，SRTM 916 m）。
 - **公园轮廓**：来自 OSM 志愿者绘制，精度不一，有的只有几个点。

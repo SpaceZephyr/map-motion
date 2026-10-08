@@ -13,12 +13,13 @@ out = Path(A.out).resolve() if A.out else sp.with_name(sp.stem + ".timeline.json
 SIZES = {"portrait": (1080, 1920), "landscape": (1920, 1080), "square": (1080, 1080)}
 W, H = SIZES.get(SPEC.get("size", "portrait"), None) or tuple(SPEC["size"])
 TS = 512
-TILED = SPEC.get("style", "amap") in ("amap", "amap-dark", "amap-gray", "amap-sepia", "satellite")
+TILED = SPEC.get("style", "amap") in ("amap", "amap-dark", "amap-gray", "amap-sepia", "satellite", "satellite-world")
 ZMAX = 17.5 if TILED else 8.0          # 矢量样式的边界是抽稀过的（约 2 km 精度），推过 8 级海岸线就成了直线段；街道级用高德底图
 _warned = []
 camera, layers, T = [], [], 0.0
 GEOM = []                           # 至今出现过的所有点，overview 用
 _places = {}
+SFX = []                            # 音效点（render.py 自动合成音轨）
 
 
 # ---------- 工具
@@ -168,7 +169,8 @@ def shot_locate(sh):
     if alt is not None: print(f"     海拔 {alt} m（SRTM 30m）")
     add(type="reticle", t0=T - 1.6, lock=1.4, color=sh.get("color"), t_out=T + sh.get("hold", 3.5) - 0.4 if sh.get("reticle_out", True) else None)
     add(type="pin", t0=T - 0.15, lnglat=ll, kind="dot", color=sh.get("color"))
-    add(type="coordcard", t0=T - 0.1, lnglat=ll, name=sh.get("name", p["label"]), sub=sh.get("sub"), kicker=sh.get("kicker"), date=sh.get("date"), alt=alt, color=sh.get("color"))
+    add(type="coordcard", t0=T - 0.1, lnglat=ll, name=sh.get("name", p["label"]), sub=sh.get("sub"), kicker=sh.get("kicker"), date=sh.get("date"), alt=alt, color=sh.get("color"),
+        t_out=T + sh.get("hold", 3.5) - 0.3 if sh.get("card_out") else None)          # card_out：坐标卡在这一镜结束时收起（后面还有镜头时用）
     GEOM.append(ll); overlays(sh, t0, T)
     hold(sh.get("hold", 3.5), 0.25); T += sh.get("hold", 3.5)
 
@@ -318,6 +320,63 @@ def shot_trip(sh):
     return km
 
 
+def shot_guess(sh):
+    """「这张照片在哪拍的？」：整屏照片＋问题＋提示＋倒数，照片缩走露出地球；镜头停在下一镜 locate/globe 的起点，衔接无跳变"""
+    global T
+    p = place(sh["to"]); ll = p["lnglat"]; dur = sh.get("dur", 6.5)
+    zg = math.log2(0.82 * math.pi * min(W, H) / TS)
+    end = {"lng": ll[0] + sh.get("spin", -110), "lat": ll[1] * 0.3, "zoom": zg}; start = {**end, "lng": end["lng"] - 8}   # 照片后面地球朝目标方向缓慢转，转到下一镜的起点
+    if camera: fly_to(start, sh.get("fly", 1.0))
+    else: cam_key(0, start)
+    hints = sh.get("hints", []); cd = sh.get("count", 3)
+    add(type="quiz", t0=T, t_out=T + dur - 0.6, image=img_path(sh["image"]), text=sh.get("text", "这张照片在哪拍的？"), sub=sh.get("sub"), kicker=sh.get("kicker", "GUESS WHERE"),
+        hints=hints, hint_t=[round(1.0 + 0.7 * k, 3) for k in range(len(hints))], count=cd, count_t0=round(dur - 0.6 - cd, 3), color=sh.get("color"))
+    cam_key(T + dur, end, "linear"); T += dur
+
+
+def shot_snap(sh):
+    """「咔嚓」：地球俯冲 → 落出机位（相机图标）和被摄地点 → 取景扇形从机位扫向被摄地 → 取景框对焦 → 快门（音效）→ 照片从机位处翻折立起，背景是虚化的当地地图"""
+    global T
+    a = place(sh["camera"]); b = place(sh["target"]); A_, B_ = a["lnglat"], b["lnglat"]; dur = sh.get("dur", 6)
+    zg = math.log2(0.82 * math.pi * min(W, H) / TS); mid = [(A_[0] + B_[0]) / 2, (A_[1] + B_[1]) / 2]
+    start = {"lng": mid[0] + sh.get("spin", -110), "lat": mid[1] * 0.3, "zoom": zg}
+    if camera: fly_to(start, sh.get("fly", 1.2))
+    else: cam_key(0, start)
+    t0 = T
+    cam_key(T + dur * 0.42, {"lng": mid[0], "lat": mid[1], "zoom": zg + 0.35}, "globe")
+    end = fit([A_, B_], fw=sh.get("frame", 0.5), fh=sh.get("frame", 0.5) * 0.72, zmax=sh.get("zoom", 15)); cam_key(T + dur, end, "smooth"); T += dur
+    add(type="pin", t0=T - 0.5, lnglat=A_, kind="camera", label=sh.get("camera_label", a["label"] or "机位"), chip=True, color=sh.get("color"))
+    add(type="pin", t0=T - 0.15, lnglat=B_, label=sh.get("target_label", b["label"]), sub=sh.get("target_sub"), chip=True, color=sh.get("color"))
+    add(type="cone", t0=T + 0.1, draw=1.0, a=A_, b=B_, fov=sh.get("fov", 34), color=sh.get("color"))
+    focus = sh.get("focus", 1.6); ts = T + 1.1 + focus                         # 扇形画完 → 取景框对焦 focus 秒 → 快门
+    km = haversine(A_, B_)
+    add(type="snap", t0=T + 1.1, ts=round(ts, 3), image=img_path(sh["image"]), anchor=A_, name=sh.get("name"), sub=sh.get("sub", f"距{b['label'] or '被摄地'} {km:.0f} km"),
+        exif=sh.get("exif", "ISO 100   1/1000   f/8   200mm"), lnglat=A_, color=sh.get("color"))
+    SFX.append({"t": round(ts, 3), "type": "shutter"})
+    hold_ = sh.get("hold", 4.0)
+    if sh.get("live"):                                                       # Live Photo：相纸立起后「按住」播放一段动态
+        lv = snap_live(sh["live"]); lt0 = sh.get("live_at", 1.9)
+        layers[-1].update(live=True, live_t=lt0, live_dur=lv["dur"], frames=lv.get("frames"))
+        if lv.get("audio"): SFX.append({"t": round(ts + lt0, 3), "type": "clip", "path": lv["audio"], "dur": lv["dur"]})
+        hold_ = max(hold_, lt0 + lv["dur"] + 1.6)
+    GEOM.extend([A_, B_]); overlays(sh, t0, T)
+    tail = 1.1 + focus + hold_; hold(tail, 0.18); T += tail
+
+
+def snap_live(v):
+    """live: true＝用静态照片模拟（推近＋手持晃动＋首尾虚化）；"x.mov"＝真 Live Photo 视频：抽帧（最长 3 秒、30fps）并带上原声"""
+    if v is True: return {"dur": 2.4}
+    import subprocess
+    f = (sp.parent / v).resolve()
+    if not f.exists(): raise SystemExit(f"Live 视频不存在：{v}")
+    d = out.parent / f"{sp.stem}.live"; d.mkdir(parents=True, exist_ok=True)
+    for old in d.glob("*.jpg"): old.unlink()
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(f), "-t", "3", "-vf", "fps=30,scale='min(1080,iw)':-2", "-q:v", "3", str(d / "%04d.jpg")], check=True)
+    fr = sorted(d.glob("*.jpg")); print(f"     Live 视频 {f.name} → {len(fr)} 帧")
+    has_a = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", str(f)], capture_output=True, text=True).stdout.strip()
+    return {"dur": round(len(fr) / 30, 3), "frames": [img_path(str(x)) for x in fr], "audio": str(f) if has_a else None}
+
+
 def shot_overview(sh):
     global T
     cam = fit(GEOM or [[105, 35]], fw=0.78, dy=0.03); fly_to(cam, sh.get("fly")); t0 = T; dur = sh.get("dur", 2.5)
@@ -331,7 +390,7 @@ def shot_title(sh):
 
 
 SHOTS = {"globe": shot_globe, "locate": shot_locate, "pins": shot_pins, "route": shot_route, "flight": lambda s: shot_route(s, arc=True), "region": shot_region,
-         "radiate": shot_radiate, "area": shot_area, "trip": shot_trip, "overview": shot_overview, "title": shot_title}
+         "radiate": shot_radiate, "area": shot_area, "trip": shot_trip, "overview": shot_overview, "title": shot_title, "guess": shot_guess, "snap": shot_snap}
 for i, sh in enumerate(SPEC["shots"]):
     for L in layers:                                          # 新镜头开始：旧落点只留点，字淡出（拉远后不挤成一团）
         if L["type"] == "pin" and "label_out" not in L and L["t0"] < T: L["label_out"] = round(T, 3)
@@ -343,7 +402,7 @@ for i, sh in enumerate(SPEC["shots"]):
     print(f"  {i + 1:>2}. {sh['type']:<8} 到 {T:6.2f}s")
 
 tl = {"width": W, "height": H, "fps": SPEC.get("fps", 30), "style": SPEC.get("style", "amap"), "duration": round(T + SPEC.get("tail", 0.6), 3),
-      "attribution": SPEC.get("attribution", True), "camera": camera, "layers": layers}
+      "attribution": SPEC.get("attribution", True), "camera": camera, "layers": layers, "sfx": SFX}
 cam_key(tl["duration"], {**camera[-1], "zoom": camera[-1]["zoom"] + 0.02}, "linear")
 out.parent.mkdir(parents=True, exist_ok=True); out.write_text(json.dumps(tl, ensure_ascii=False))
 print(f"timeline -> {out}  {tl['duration']}s  {W}×{H}  样式 {tl['style']}  图层 {len(layers)}  相机关键帧 {len(camera)}")

@@ -1,0 +1,34 @@
+{
+ "size": "portrait",
+ "style": "satellite-world",
+ "tail": 0.4,
+ "shots": [
+  {
+   "type": "snap",
+   "camera": {
+    "name": "机位",
+    "at": [
+     138.735,
+     35.14
+    ]
+   },
+   "target": {
+    "name": "富士山",
+    "at": [
+     138.7274,
+     35.3606
+    ]
+   },
+   "target_sub": "3776 m",
+   "image": "photo.jpg",
+   "dur": 6.5,
+   "spin": -100,
+   "fov": 30,
+   "focus": 1.6,
+   "hold": 4.2,
+   "name": "富士山 × 新干线",
+   "sub": "静冈县富士市 · 距山顶 24 km",
+   "exif": "ISO 100   1/2000   f/8   135mm"
+  }
+ ]
+}

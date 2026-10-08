@@ -1,0 +1,38 @@
+{
+ "size": "portrait",
+ "style": "satellite",
+ "tail": 0.4,
+ "shots": [
+  {
+   "type": "snap",
+   "camera": {
+    "name": "神瀑",
+    "at": [
+     98.755044,
+     28.363267
+    ]
+   },
+   "target": {
+    "name": "卡瓦格博",
+    "at": [
+     98.6833,
+     28.4367
+    ],
+    "wgs84": true
+   },
+   "camera_label": "神瀑",
+   "target_sub": "6740 m · 梅里雪山主峰",
+   "image": "photo.jpg",
+   "dur": 6.5,
+   "spin": -110,
+   "fov": 36,
+   "frame": 0.4,
+   "live": true,
+   "focus": 1.6,
+   "hold": 4.2,
+   "name": "雨崩 · 神瀑",
+   "sub": "云南德钦 · 梅里雪山脚下",
+   "exif": "ISO 50   1/1000   f/1.8   24mm"
+  }
+ ]
+}
