@@ -245,6 +245,7 @@ window.renderFrame = t => {
   const g = c.createLinearGradient(0, 0, 0, H * 0.6);
   g.addColorStop(0, `rgb(${lerp(0, 74, sk)},${lerp(0, 124, sk)},${lerp(0, 196, sk)})`); g.addColorStop(1, `rgb(${lerp(0, 214, sk)},${lerp(0, 228, sk)},${lerp(0, 240, sk)})`);
   c.fillStyle = g; c.fillRect(0, 0, W, H); c.drawImage(map.getCanvas(), 0, 0, W, H);
+  if (F[2] < 6) window.__qaSkipBlack = true;                              // 太空本来就是黑的
   const d = F[5], hudA = fade(t, PH.f0 - 0.4, PH.f1 + 0.9, 0.6, 0.6), topA = Math.max(hudA, fade(t, PH.dive - 1.0, PH.f0 - 0.4, 0.8, 0.6), fade(t, PH.f1 + 1.0, null, 0.8));
   shade(0, 520 * U, topA * 0.62); shade(H, H - 620 * U, Math.max(hudA, fade(t, PH.f1 + 1.4, null, 0.7), TL.place ? fade(t, PH.dive - 0.6, null, 0.8) : 0) * 0.7);   // 雪山上白字看不清：上下压暗
   drawMarks(t, fade(t, PH.dive - 0.4, null, 0.8));

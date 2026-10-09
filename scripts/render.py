@@ -9,6 +9,7 @@ uv run --with playwright --with certifi python render.py timeline.json --stills 
 import argparse, base64, functools, http.server, json, socketserver, ssl, subprocess, threading, time, urllib.parse, urllib.request
 from pathlib import Path
 from playwright.sync_api import sync_playwright
+import sys; sys.path.insert(0, str(Path(__file__).parent)); import qa
 
 HERE = Path(__file__).parent
 ASSETS = HERE.parent / "assets"
@@ -27,6 +28,8 @@ ap = argparse.ArgumentParser()
 ap.add_argument("timeline"); ap.add_argument("--out", required=True)
 ap.add_argument("--stills"); ap.add_argument("--gif"); ap.add_argument("--audio")
 ap.add_argument("--gif-width", type=int, default=480); ap.add_argument("--gif-fps", type=int, default=12)
+ap.add_argument("--qa-every", type=float, default=0.5, help="整片渲染时每隔几秒抽一帧质检，0 关闭")
+ap.add_argument("-v", "--verbose", action="store_true", help="打印逐段进度和页面日志（缺省只在结束时出一段摘要）")
 ap.add_argument("--crf", type=int, default=20); ap.add_argument("--from", dest="t0", type=float, default=0); ap.add_argument("--to", dest="t1", type=float)
 A = ap.parse_args()
 
@@ -117,19 +120,23 @@ with sync_playwright() as pw:
     TERRAIN = TL.get("runtime") == "terrain"                # 3D 地形片：MapLibre（WebGL，无头下走 SwiftShader 软件渲染）
     b = pw.chromium.launch(args=["--disable-web-security"] + (["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] if TERRAIN else []))
     pg = b.new_page(viewport={"width": TL["width"], "height": TL["height"]}, device_scale_factor=1)
-    pg.on("console", lambda m: (print("[page]", m.text), errors.append(m.text)) if m.type == "error" else None)
-    pg.on("pageerror", lambda e: (print("[pageerror]", e), errors.append(str(e))))
+    pg.on("console", lambda m: (A.verbose and print("[page]", m.text), errors.append(m.text)) if m.type == "error" else None)
+    pg.on("pageerror", lambda e: (A.verbose and print("[pageerror]", e), errors.append(str(e))))
     pg.add_init_script("window.MM_TIMELINE = " + json.dumps(TL, ensure_ascii=False) + ";")
     pg.goto(f"http://127.0.0.1:{port}/{'terrain.html' if TERRAIN else 'index.html'}")
     pg.wait_for_function("window.__ready === true || !!window.__bootFailed", timeout=120000)
     if pg.evaluate("window.__bootFailed || null"): raise SystemExit("运行时启动失败：\n" + pg.evaluate("window.__bootFailed"))
     grab = "async (t) => { await window.prepare(t); window.renderFrame(t); return window.__canvas.toDataURL('image/png').split(',')[1]; }"
+    grabq = "async (t) => { await window.prepare(t); window.__qaBegin(); window.renderFrame(t); const q = window.__qaEnd(); return [window.__canvas.toDataURL('image/png').split(',')[1], q]; }"
+    samples, W_, H_ = [], TL["width"], TL["height"]
     fps, t1 = TL["fps"], A.t1 if A.t1 is not None else TL["duration"]
     if A.stills:
         out = Path(A.out); out.mkdir(parents=True, exist_ok=True)
         for s in A.stills.split(","):
-            (out / f"t{float(s):06.2f}.png").write_bytes(base64.b64decode(pg.evaluate(grab, float(s))))
-        print("stills ->", out)
+            png, q = pg.evaluate(grabq, float(s)); samples.append((float(s), q))
+            (out / f"t{float(s):06.2f}.png").write_bytes(base64.b64decode(png))
+        print(f"✓ 静帧 {len(samples)} 张 -> {out}")
+        print(qa.report(samples, W_, H_, 1e9, out / "qa.json"))
     else:
         out = Path(A.out); out.parent.mkdir(parents=True, exist_ok=True)
         if not A.audio and TL.get("sfx"):                 # 镜头里有快门等音效点且没给音乐：合成一条音效音轨
@@ -138,19 +145,32 @@ with sync_playwright() as pw:
         ff = subprocess.Popen(["ffmpeg", "-y", "-v", "error", "-f", "image2pipe", "-framerate", str(fps), "-c:v", "png", "-i", "-",
                                "-c:v", "libx264", "-preset", "slow", "-crf", str(A.crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(vid)], stdin=subprocess.PIPE)
         n0, n1, st = round(A.t0 * fps), round(t1 * fps), time.time()
+        every = max(1, round(A.qa_every * fps)) if A.qa_every > 0 else 0
+        prog = out.with_name(out.name + ".progress")              # 给 status.py 看的进度（一行 JSON）
         for i in range(n0, n1):
-            ff.stdin.write(base64.b64decode(pg.evaluate(grab, i / fps)))
-            if (i - n0) % (fps * 5) == 0: print(f"  {i}/{n1} 帧  {time.time() - st:.0f}s", flush=True)
+            if every and ((i - n0) % every == 0 or i == n1 - 1):
+                png, q = pg.evaluate(grabq, i / fps); samples.append((i / fps, q))
+            else:
+                png = pg.evaluate(grab, i / fps)
+            ff.stdin.write(base64.b64decode(png))
+            if (i - n0) % fps == 0 or i == n1 - 1:
+                k, el = i - n0 + 1, time.time() - st
+                prog.write_text(json.dumps({"out": str(out), "done": k, "total": n1 - n0, "elapsed": round(el), "eta": round(el / k * (n1 - n0 - k)), "t": time.time()}))
+                if A.verbose and (i - n0) % (fps * 5) == 0: print(f"  {i}/{n1} 帧  {el:.0f}s", flush=True)
         ff.stdin.close(); ff.wait()
         if A.audio:
             subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(vid), "-ss", str(A.t0), "-i", A.audio, "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(out)], check=True); vid.unlink()
         if A.audio and A.audio.endswith(".sfx.wav"): Path(A.audio).unlink(missing_ok=True)
-        print("mp4 ->", out)
+        prog.unlink(missing_ok=True)
+        print(f"✓ 成片 {out}（{(n1 - n0) / fps:.1f}s，{n1 - n0} 帧，用时 {(time.time() - st) / 60:.1f} 分钟）")
+        if every: print(qa.report(samples, W_, H_, every / fps, out.with_suffix(".qa.json")))
         if A.gif:
             subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(out), "-vf",
                             f"fps={A.gif_fps},scale={A.gif_width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle", A.gif], check=True)
-            print("gif ->", A.gif)
+            print(f"✓ GIF {A.gif}")
     b.close()
 srv.shutdown()
-print(f"瓦片：新取 {STATS['net']}，缓存 {STATS['cache']}，失败 {STATS['fail']}")
-if errors: raise SystemExit(f"页面报错 {len(errors)} 条")
+if A.verbose or STATS["fail"]: print(f"瓦片：新取 {STATS['net']}，缓存 {STATS['cache']}，失败 {STATS['fail']}" + ("（失败的地方会是空白/灰块）" if STATS["fail"] else ""))
+if errors:
+    uniq = list(dict.fromkeys(e[:160] for e in errors))
+    raise SystemExit(f"✗ 页面报错 {len(errors)} 条（{len(uniq)} 种），前几种：\n  " + "\n  ".join(uniq[:3]) + "\n（对照 SKILL.md「踩过的坑」；-v 看完整日志）")

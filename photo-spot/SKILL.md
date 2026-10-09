@@ -81,9 +81,9 @@ $S exif ~/Documents/map-motion/<项目名>/photo.jpg
 ```sh
 M=~/.claude/skills/map-motion/scripts/make.sh
 cd ~/Documents/map-motion/<项目名> && $M snap.json stills/ --stills 5.5,8.6,9.6,10.2,12,14
-$S sheet stills          # 再 Read 拼图
+$S sheet stills          # 质检没报问题时，只为看构图读一次拼图
 ```
-逐项看：
+输出末尾的「质检」会自动查出画、文字互压、文字压照片；它管不到的靠拼图逐项看：
 - 8.6s：相机图标和被摄地标签都在画面里、没贴边、没互相压；扇形方向和照片对得上（从机位看过去，照片里的东西确实在那个方向）
 - 9.6s：翻折中的相纸是梯形透视（不是平移）
 - 10.2s 以后：相纸完整在画面内（竖图已限高），下方文字不出画；背景是照片的虚化
