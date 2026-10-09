@@ -58,7 +58,9 @@
 ### 7. 3D 地形：像 Google Earth 一样的立体轨迹（子 skill `map-3d`）
 真实山体起伏（AWS 高程 + Esri 卫星，MapLibre GL 渲染）：卫星地球俯冲 → 整条路线 3D 鸟瞰 → 镜头贴着人/车沿路线走（走过的线变黄，里程、海拔、累计爬升、小地图、底部海拔剖面实时走，沿途弹照片）→ 拉回全景出总数据。路线可以是 GPX（两步路、六只脚、Strava、手表）、高德驾车/骑行/步行规划，或没有 GPX 时沿 OpenStreetMap 小路连途经点；也能只给一个地方，俯冲后绕着转一圈。
 
-`map-3d/`（安装见下）· 示例 spec 在 `map-3d/examples/`（另有雨崩神瀑徒步、泰山红门登顶）
+<img src="docs/media/m3d_drive.webp" width="200" alt="香格里拉 → 飞来寺 自驾 3D"> <img src="docs/media/m3d_place.webp" width="200" alt="梅里雪山 卡瓦格博 环绕">
+
+香格里拉 → 飞来寺自驾 171 km（高德驾车路线，预览 2 倍速）· 卡瓦格博单点环绕。`map-3d/`（安装见下）· 示例 spec 在 `map-3d/examples/`（另有雨崩神瀑徒步、泰山红门登顶）
 
 ## 13 种风格
 

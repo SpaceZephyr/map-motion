@@ -205,7 +205,7 @@ def compile(SPEC, sp, out, W, H):
           "track": [[round(p[0], 6), round(p[1], 6), round(ele[i], 1), round(p[2], 4), round(G[i])] for i, p in enumerate(P)],
           "stats": {"km": round(L, 2), "gain": round(gain), "loss": round(loss), "max": round(max(ele)), "min": round(min(ele))},
           "marks": marks, "layers": photos, "frames": cams, "sfx": [],
-          "attribution": "Imagery © Esri, Maxar, Earthstar Geographics · Terrain © Mapzen, AWS" + (" · Track © OpenStreetMap" if isinstance(tr, dict) else "")}
+          "attribution": "Imagery © Esri, Maxar, Earthstar Geographics · Terrain © Mapzen, AWS" + (" · Track © OpenStreetMap" if isinstance(tr, dict) and tr.get("via") and not tr.get("from") else " · Route © 高德地图" if isinstance(tr, dict) and tr.get("from") else "")}
     out.parent.mkdir(parents=True, exist_ok=True); out.write_text(json.dumps(tl, ensure_ascii=False))
     print(f"timeline -> {out}  {tl['duration']}s  {W}×{H}  3D 地形  {len(cams)} 帧  照片 {len(photos)}  跟随 {t_f0:.1f}–{t_f1:.1f}s")
 
