@@ -76,6 +76,8 @@
 
 西湖 5 个机位步行 8.8 km（演示用内置小人，预览 1.5 倍速、无声；成片带 BGM 和音效）。
 
+也有独立仓库 [SpaceZephyr/travel-vlog](https://github.com/SpaceZephyr/travel-vlog)（自带引擎，单独安装即可用）。
+
 ## 14 种风格
 
 同一份镜头表，改一个 `style` 字段就换风格。前 6 种直接用高德瓦片、`satellite-world` 用 Esri 卫星（能推到街道级），后 7 种用代码绘制矢量底图（全国到地级市尺度）。
@@ -135,7 +137,7 @@ uv run --with playwright playwright install chromium     # 首次：无头浏览
 ```sh
 ln -s ~/.claude/skills/map-motion/photo-spot ~/.claude/skills/photo-spot
 ln -s ~/.claude/skills/map-motion/map-3d ~/.claude/skills/map-3d          # 3D 地形、光线推演
-ln -s ~/.claude/skills/map-motion/travel-vlog ~/.claude/skills/travel-vlog # 旅行 vlog
+ln -s ~/.claude/skills/map-motion/travel-vlog ~/.claude/skills/travel-vlog # 旅行 vlog（或单独装 github.com/SpaceZephyr/travel-vlog）
 ```
 
 **2. 配高德 key**（高德开放平台 → 应用管理 → 添加「Web服务」类型 key，免费）
