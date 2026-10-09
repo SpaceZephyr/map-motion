@@ -18,7 +18,10 @@ SRC = {   # 高德瓦片（GCJ-02 墨卡托）：amap＝标准路网 512px，sat
     "sat": "https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}",
     "lbl": "https://wprd0{s}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=2&style=8&ltype=4",
     "esri": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",   # 境外卫星（WGS-84 墨卡托，全球高清）；高德卫星境外只有城市级
+    "dem": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png",   # 3D 地形：AWS Terrain Tiles（Terrarium 编码高程）
 }
+VENDOR = {"maplibre-gl.js": "https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"}   # 3D 运行时用，首次下载后缓存
+VCACHE = Path.home() / ".cache/map-motion/vendor"
 
 ap = argparse.ArgumentParser()
 ap.add_argument("timeline"); ap.add_argument("--out", required=True)
@@ -87,6 +90,11 @@ class Q(http.server.SimpleHTTPRequestHandler):
             _, _, src, z, x, y = p.split("/")
             d = tile(src, int(z), int(x), int(y))
             return self._send(d, "image/jpeg" if src in ("sat", "esri") else "image/png") if d else self.send_error(404)
+        if p.startswith("/vendor/") and p[8:] in VENDOR:
+            f = VCACHE / VENDOR[p[8:]].split("/")[3] / p[8:]
+            if not f.exists():
+                f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(urllib.request.urlopen(VENDOR[p[8:]], timeout=60, context=CTX).read())
+            return self._send(f.read_bytes(), "text/javascript")
         if p.startswith("/asset/"):
             f = (ASSETS / p[len("/asset/"):]).resolve()
             if ASSETS in f.parents and f.exists(): return self._send(f.read_bytes(), "font/woff" if f.suffix == ".woff" else "application/json")
@@ -97,19 +105,22 @@ class Q(http.server.SimpleHTTPRequestHandler):
         return super().do_GET()
 
 
-class TS(socketserver.ThreadingMixIn, socketserver.TCPServer): daemon_threads = True
+class TS(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    daemon_threads = True
+    def handle_error(self, *a): pass                          # 浏览器取消的瓦片请求（断管）不刷屏
 srv = TS(("127.0.0.1", 0), functools.partial(Q, directory=str(HERE / "runtime")))
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 port = srv.server_address[1]
 
 errors = []
 with sync_playwright() as pw:
-    b = pw.chromium.launch(args=["--disable-web-security"])
+    TERRAIN = TL.get("runtime") == "terrain"                # 3D 地形片：MapLibre（WebGL，无头下走 SwiftShader 软件渲染）
+    b = pw.chromium.launch(args=["--disable-web-security"] + (["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] if TERRAIN else []))
     pg = b.new_page(viewport={"width": TL["width"], "height": TL["height"]}, device_scale_factor=1)
     pg.on("console", lambda m: (print("[page]", m.text), errors.append(m.text)) if m.type == "error" else None)
     pg.on("pageerror", lambda e: (print("[pageerror]", e), errors.append(str(e))))
     pg.add_init_script("window.MM_TIMELINE = " + json.dumps(TL, ensure_ascii=False) + ";")
-    pg.goto(f"http://127.0.0.1:{port}/index.html")
+    pg.goto(f"http://127.0.0.1:{port}/{'terrain.html' if TERRAIN else 'index.html'}")
     pg.wait_for_function("window.__ready === true || !!window.__bootFailed", timeout=120000)
     if pg.evaluate("window.__bootFailed || null"): raise SystemExit("运行时启动失败：\n" + pg.evaluate("window.__bootFailed"))
     grab = "async (t) => { await window.prepare(t); window.renderFrame(t); return window.__canvas.toDataURL('image/png').split(',')[1]; }"

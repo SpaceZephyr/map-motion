@@ -92,6 +92,60 @@ def track(path, wgs84=True):
     return [amap.wgs2gcj(*q) for q in pts] if wgs84 else pts
 
 
+TRAIL_HW = "path|footway|track|bridleway|steps|cycleway|pedestrian|unclassified|service|residential|tertiary|secondary|living_street|construction|road"
+
+
+def trail(via, margin=0.02):
+    """没有 GPX 时：沿 OSM 的小路/土路把途经点连成一条线（最短路）。via 为 WGS-84 [[lng,lat],…]，返回 WGS-84 点列。"""
+    xs, ys = [p[0] for p in via], [p[1] for p in via]
+    b = f"{min(ys) - margin},{min(xs) - margin},{max(ys) + margin},{max(xs) + margin}"
+    d = overpass(f'[out:json][timeout:90];way[highway~"^({TRAIL_HW})$"]({b});(._;>;);out body qt;')
+    nodes = {e["id"]: (e["lon"], e["lat"]) for e in d["elements"] if e["type"] == "node"}
+    adj = {}
+    for e in d["elements"]:
+        if e["type"] != "way": continue
+        ns = [n for n in e["nodes"] if n in nodes]
+        for a, c in zip(ns, ns[1:]):
+            w = _km(nodes[a], nodes[c]); adj.setdefault(a, []).append((c, w)); adj.setdefault(c, []).append((a, w))
+    if not adj: raise SystemExit("OSM 在这片区域没有小路数据，只能用 GPX 轨迹")
+    ends = [w["nodes"][i] for w in d["elements"] if w["type"] == "way" for i in (0, -1) if w["nodes"][i] in adj]
+    grid = {}
+    for n in adj: grid.setdefault((round(nodes[n][0] / 0.0005), round(nodes[n][1] / 0.0005)), []).append(n)
+    for a in ends:                                                 # OSM 常见断头：端点 40 m 内有别的路就接上
+        gx, gy = round(nodes[a][0] / 0.0005), round(nodes[a][1] / 0.0005)
+        for c in (n for i in (-1, 0, 1) for j in (-1, 0, 1) for n in grid.get((gx + i, gy + j), [])):
+            w = _km(nodes[a], nodes[c])
+            if c != a and w < 0.04 and all(v != c for v, _ in adj[a]): adj[a].append((c, w * 3)); adj[c].append((a, w * 3))
+    import heapq
+    def snap(p):
+        n = min(adj, key=lambda k: _km(nodes[k], p)); dk = _km(nodes[n], p)
+        if dk > 0.5: print(f"     注意：途经点 {p} 离最近的 OSM 小路 {dk:.2f} km")
+        return n
+    def path(s, g):
+        dist, prev, pq = {s: 0}, {}, [(0, s)]
+        while pq:
+            dd, u = heapq.heappop(pq)
+            if u == g: break
+            if dd > dist[u]: continue
+            for v, w in adj[u]:
+                if dd + w < dist.get(v, 1e18): dist[v] = dd + w; prev[v] = u; heapq.heappush(pq, (dd + w, v))
+        if g not in dist: return None
+        out = [g]
+        while out[-1] != s: out.append(prev[out[-1]])
+        return out[::-1]
+    ids = [snap(p) for p in via]; line = []
+    for k, (s, g) in enumerate(zip(ids, ids[1:])):
+        seg = path(s, g)
+        if seg is None: raise SystemExit(f"OSM 小路在第 {k + 1}→{k + 2} 个途经点之间不连通：加一个中间点，或改用 GPX")
+        line += [list(nodes[n]) for n in (seg if not line else seg[1:])]
+    return line
+
+
+def _km(a, b):
+    la1, la2 = math.radians(a[1]), math.radians(b[1])
+    return 6371 * 2 * math.asin(math.sqrt(math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin(math.radians(b[0] - a[0]) / 2) ** 2))
+
+
 if __name__ == "__main__":
     n, x, y = sys.argv[1], float(sys.argv[2]), float(sys.argv[3]); r = area(n, [x, y])
     print(r["source"], r["tags"].get("name"), [len(q) for q in r["rings"]], r["rings"][0][:2])

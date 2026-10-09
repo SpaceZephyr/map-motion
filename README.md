@@ -55,6 +55,11 @@
 
 富士山 × 新干线（境外，Esri 卫星）· 雨崩神瀑 → 卡瓦格博（Live Photo 模拟）· 香港钓鱼翁 → 布袋澳。`photo-spot/`（安装见下）· 示例 spec 在 `photo-spot/examples/`
 
+### 7. 3D 地形：像 Google Earth 一样的立体轨迹（子 skill `map-3d`）
+真实山体起伏（AWS 高程 + Esri 卫星，MapLibre GL 渲染）：卫星地球俯冲 → 整条路线 3D 鸟瞰 → 镜头贴着人/车沿路线走（走过的线变黄，里程、海拔、累计爬升、小地图、底部海拔剖面实时走，沿途弹照片）→ 拉回全景出总数据。路线可以是 GPX（两步路、六只脚、Strava、手表）、高德驾车/骑行/步行规划，或没有 GPX 时沿 OpenStreetMap 小路连途经点；也能只给一个地方，俯冲后绕着转一圈。
+
+`map-3d/`（安装见下）· 示例 spec 在 `map-3d/examples/`（另有雨崩神瀑徒步、泰山红门登顶）
+
 ## 13 种风格
 
 同一份镜头表，改一个 `style` 字段就换风格。前 5 种直接用高德瓦片、`satellite-world` 用 Esri 卫星（能推到街道级），后 7 种用代码绘制矢量底图（全国到地级市尺度）。
@@ -111,6 +116,7 @@ uv run --with playwright playwright install chromium     # 首次：无头浏览
 要用「找机位」子 skill，再链接一下（它复用 map-motion 的渲染引擎）：
 ```sh
 ln -s ~/.claude/skills/map-motion/photo-spot ~/.claude/skills/photo-spot
+ln -s ~/.claude/skills/map-motion/map-3d ~/.claude/skills/map-3d          # 3D 地形
 ```
 
 **2. 配高德 key**（高德开放平台 → 应用管理 → 添加「Web服务」类型 key，免费）
@@ -187,13 +193,16 @@ timeline.json
 - [Natural Earth](https://www.naturalearthdata.com) / [world-atlas](https://github.com/topojson/world-atlas)：世界陆地轮廓
 - [OpenStreetMap](https://www.openstreetmap.org)（Overpass API）：公园、景区等地块轮廓 © OpenStreetMap contributors，ODbL
 - [OpenTopoData](https://www.opentopodata.org)：SRTM 30m 海拔
-- [Esri World Imagery](https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9)：境外卫星影像（`satellite-world`），© Esri, Maxar, Earthstar Geographics
+- [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/)（Mapzen Terrarium 编码）：3D 地形与 3D 片的海拔/爬升，© Mapzen 及各数据源（SRTM、GMTED、ETOPO1 等）
+- [MapLibre GL JS](https://maplibre.org) 5.24（BSD-3）：3D 片的渲染，运行时从 unpkg 下载并缓存
+- [Esri World Imagery](https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9)：境外卫星影像（`satellite-world`）和 3D 片的全部卫星影像，© Esri, Maxar, Earthstar Geographics
 
 ## 使用边界
 
 - **高德瓦片**：渲染时直接取高德瓦片，属于非官方用法。个人视频、学习交流可用，成片右下角保留「© 高德地图」署名；**商业投放需要高德的商业授权**，或改用 7 种矢量风格。`satellite-world` 的 Esri 影像同理：个人非商业可用并保留署名，商用需 Esri 授权。
 - **地图合规**：中国边界按内置数据绘制（含台湾、南海诸岛与九段线），请勿删改；对外商用的地图内容在国内受《地图管理条例》约束。
 - **海拔**：SRTM 是约 30 米网格的平均高程，山顶会比实际略低（梧桐山顶实测 944 m，SRTM 916 m）。
+- **3D 片**：无头浏览器里是软件 WebGL（SwiftShader），约 1 秒一帧，30 秒片子 15–25 分钟；OSM 小路连出来的线是推测路线，不是你实际走的轨迹，有 GPX 一定用 GPX。
 - **公园轮廓**：来自 OSM 志愿者绘制，精度不一，有的只有几个点。
 - **示例里的日期**（青海湖骑行、vlog 拍摄时间）是示意，路线、里程、海拔是真实数据。
 

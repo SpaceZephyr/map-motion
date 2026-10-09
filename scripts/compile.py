@@ -12,6 +12,8 @@ sp = Path(A.spec).resolve(); SPEC = json.loads(sp.read_text())
 out = Path(A.out).resolve() if A.out else sp.with_name(sp.stem + ".timeline.json")
 SIZES = {"portrait": (1080, 1920), "landscape": (1920, 1080), "square": (1080, 1080)}
 W, H = SIZES.get(SPEC.get("size", "portrait"), None) or tuple(SPEC["size"])
+if SPEC.get("mode") == "3d":                                    # 3D 地形轨迹片走另一套（MapLibre 渲染），见 terrain3d.py
+    import terrain3d; terrain3d.compile(SPEC, sp, out, W, H); sys.exit(0)
 TS = 512
 TILED = SPEC.get("style", "amap") in ("amap", "amap-dark", "amap-gray", "amap-sepia", "satellite", "satellite-world")
 ZMAX = 17.5 if TILED else 8.0          # 矢量样式的边界是抽稀过的（约 2 km 精度），推过 8 级海岸线就成了直线段；街道级用高德底图

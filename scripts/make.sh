@@ -3,5 +3,5 @@
 set -e
 D="${0:A:h}"; SPEC="${1:A}"; OUT="$2"; shift 2
 TL="${SPEC:r}.timeline.json"
-uv run --with certifi python "$D/compile.py" "$SPEC" --out "$TL"
+uv run --with certifi --with pillow python "$D/compile.py" "$SPEC" --out "$TL"
 uv run --with playwright --with certifi python "$D/render.py" "$TL" --out "$OUT" "$@"
