@@ -12,16 +12,25 @@ sp = Path(A.spec).resolve(); SPEC = json.loads(sp.read_text())
 out = Path(A.out).resolve() if A.out else sp.with_name(sp.stem + ".timeline.json")
 SIZES = {"portrait": (1080, 1920), "landscape": (1920, 1080), "square": (1080, 1080)}
 W, H = SIZES.get(SPEC.get("size", "portrait"), None) or tuple(SPEC["size"])
-if SPEC.get("mode") == "3d":                                    # 3D 地形轨迹片走另一套（MapLibre 渲染），见 terrain3d.py
-    import terrain3d; terrain3d.compile(SPEC, sp, out, W, H); sys.exit(0)
+MODES = {"3d": "terrain3d", "sun": "sunlight"}                 # 其它片型：各自一个模块 compile(SPEC, sp, out, W, H)，渲染、质检、进度共用
+if SPEC.get("mode") in MODES:
+    import importlib; importlib.import_module(MODES[SPEC["mode"]]).compile(SPEC, sp, out, W, H); sys.exit(0)
 TS = 512
-TILED = SPEC.get("style", "amap") in ("amap", "amap-dark", "amap-gray", "amap-sepia", "satellite", "satellite-world")
+TILED = SPEC.get("style", "amap") in ("amap", "amap-dark", "amap-gray", "amap-sepia", "amap-journal", "satellite", "satellite-world")
 ZMAX = 17.5 if TILED else 8.0          # 矢量样式的边界是抽稀过的（约 2 km 精度），推过 8 级海岸线就成了直线段；街道级用高德底图
 _warned = []
 camera, layers, T = [], [], 0.0
 GEOM = []                           # 至今出现过的所有点，overview 用
 _places = {}
 SFX = []                            # 音效点（render.py 自动合成音轨）
+MUSIC = SPEC.get("music")           # 配乐：{"bpm", "seed"} 合成 BGM，或 {"file", "bpm"} 用自己的歌；有 bpm 时到站、快门、弹照片都踩在拍点上
+BEAT = 60 / MUSIC["bpm"] if MUSIC and MUSIC.get("bpm") else None
+JOURNEY = {"km": 0.0, "stops": [], "photos": []}   # trip 走完记下来，给片尾 wall 用
+
+
+def on_beat(t, k=0):
+    """t 之后（含）最近的拍点，再往后 k 拍；没有节拍就原样"""
+    return (math.ceil(t / BEAT - 0.05) + k) * BEAT if BEAT else t + k * 0.5
 
 
 # ---------- 工具
@@ -282,22 +291,60 @@ def shot_radiate(sh):
     GEOM.extend([c0["lnglat"]] + [e["lnglat"] for e in ends]); overlays(sh, t0, T + dur); hold(dur, 0.06); T += dur
 
 
+def face_of(line, end=True):
+    """形象朝向：到站时看最后 15% 路程的东西走向（出发时看头 15%）；1 朝右 / -1 朝左"""
+    cum = [0.0]
+    for a, b in zip(line, line[1:]): cum.append(cum[-1] + haversine(a, b))
+    L = cum[-1] or 1; k = next(i for i, c in enumerate(cum) if c >= (0.85 * L if end else 0.15 * L))
+    a, b = (line[k], line[-1]) if end else (line[0], line[k])
+    return 1 if b[0] >= a[0] else -1
+
+
 def shot_trip(sh):
     global T
     stops = [place(s) for s in sh["stops"]]; names = [s if isinstance(s, str) else s.get("name", "") for s in sh["stops"]]
     mode = sh.get("mode", "driving"); km = 0.0; photos = sh.get("photos", {}); dates = sh.get("dates", {}); stay = sh.get("stay", 2.6)
+    av = {k: img_path(v) for k, v in sh["avatar"].items()} if sh.get("avatar") else None    # 卡通形象：{"walk": 走路贴纸, "snap": 拍照贴纸}
+    vlog = bool(av) or sh.get("vlog", False)
+    if vlog: stay = max(stay, 3.4)
     legs = []
     for i in range(len(stops) - 1):
         r = get_line(stops[i]["lnglat"], stops[i + 1]["lnglat"], mode); legs.append(r)
     if sh.get("overview", True):
         cam = fit([p for r in legs for p in r["line"]], dy=0.04); fly_to(cam, sh.get("fly")); t0 = T
-        add(type="pin", t0=T + 0.2, lnglat=stops[0]["lnglat"], label=names[0], kind="stamp" if sh.get("stamp") else None, stampSub=dates.get(names[0]))
+        add(type="pin", t0=T + 0.2, lnglat=stops[0]["lnglat"], label=None if vlog else names[0], kind="stamp" if sh.get("stamp") else None, stampSub=dates.get(names[0]))
         overlays(sh, t0, T + 2.2); hold(2.2, 0.05); T += 2.2
+
+    def moment(i, face):
+        """vlog 到站：形象停下（叮）→ 举相机咔嚓 → 照片啵地弹出，说明里写第几站、已走多少"""
+        global T
+        T = on_beat(T); st = round(on_beat(T + stay) - T, 3) if BEAT else stay; ims = photos.get(names[i], [])[:2]
+        if av: add(type="actor", t0=T, t_out=T + st - 0.05, lnglat=stops[i]["lnglat"], avatar=av, snap_t=round(on_beat(T, 1), 3) if ims else None, face=face)
+        SFX.append({"t": round(T, 3), "type": "ding" if i < len(stops) - 1 else "ding2"})
+        if ims: SFX.append({"t": round(on_beat(T, 1), 3), "type": "shutter"})
+        for k, im in enumerate(ims):
+            pi = im if isinstance(im, dict) else {"image": im}; tp = on_beat(T, 2 + k)
+            cap = pi.get("caption") or names[i]; sub = f"第 {i + 1} 站" + (f" · 已走 {km:.1f} km" if km else " · 出发")
+            add(type="photo", t0=tp, t_out=T + st - 0.3, image=img_path(pi["image"]), caption=cap, sub=sub, slot=k)
+            SFX.append({"t": round(tp, 3), "type": "pop"}); JOURNEY["photos"].append({"image": img_path(pi["image"]), "caption": cap})
+        sc = {**camera[-1]}; cam_key(T + st, {**sc, "zoom": sc["zoom"] + 0.15}, "inOut"); T += st
+
+    if vlog and photos.get(names[0]):                                     # 起点也有照片：先拍一张再出发
+        fly_to(fit(legs[0]["line"], fw=0.66, fh=0.34 if H > W else 0.55, dy=-0.05 if H > W else 0), 0.9)
+        add(type="pin", t0=T, lnglat=stops[0]["lnglat"], kind="stamp" if sh.get("stamp") else None)
+        moment(0, face_of(legs[0]["line"], end=False))
     for i, r in enumerate(legs):
         cam = fit(r["line"], fw=0.66, fh=0.34 if H > W else 0.55, dy=-0.05 if H > W else 0); fly_to(cam, 0.9)
-        dur = sh.get("drive") or round(2.4 + 2.2 * math.sqrt(r["km"] / 760), 2); s = T
-        add(type="route", t0=s, t1=s + dur, line=r["line"], vehicle=sh.get("vehicle", {"driving": "car", "walking": "walk", "bicycling": "bike"}.get(mode, "dot")), park=False, dash=sh.get("dash"))
-        add(type="odometer", t0=s, t1=s + dur, to=km + r["km"], **{"from": km}, t_out=None if i == len(legs) - 1 else s + dur + stay - 0.01)
+        dur = sh.get("drive") or round((2.6 + 1.6 * math.sqrt(r["km"])) if vlog else 2.4 + 2.2 * math.sqrt(r["km"] / 760), 2); s = T
+        if vlog: s = T = on_beat(T); dur = round(on_beat(s + min(dur, 7.0)) - s, 3)
+        add(type="route", t0=s, t1=s + dur, line=r["line"], vehicle="avatar" if av else sh.get("vehicle", {"driving": "car", "walking": "walk", "bicycling": "bike"}.get(mode, "dot")),
+            avatar=av, park=False, dash=sh.get("dash"), ease="walk" if av else None)
+        if av:                                                            # 脚步声：走路的每半拍一步
+            sd = (BEAT / 2) if BEAT else 0.3; k = 0
+            while s + 0.25 + k * sd < s + dur - 0.2: SFX.append({"t": round(s + 0.25 + k * sd, 3), "type": "step", "v": k}); k += 1
+        tot_km = sum(x["km"] for x in legs)
+        add(type="odometer", t0=s, t1=s + dur, to=km + r["km"], **{"from": km}, t_out=None if i == len(legs) - 1 else s + dur + stay - 0.01,
+            decimals=(2 if tot_km < 10 else 1) if vlog else None, label="已走" if vlog else None)
         if sh.get("elevation"):
             pr = elev.profile(r["line"], 80); print(f"     {names[i]}→{names[i + 1]} 海拔 {pr['min']}–{pr['max']} m，爬升 {pr['gain']} m")
             add(type="profile", t0=s, t1=s + dur, samples=pr["samples"], km=r["km"], t_out=s + dur + stay - 0.3)
@@ -305,7 +352,9 @@ def shot_trip(sh):
         d = dates.get(names[i + 1], ""); day = f"DAY {i + 1}" if sh.get("days", True) else ""
         add(type="caption", t0=s, t_out=s + dur + stay - 0.3, text=f"{names[i]} → {names[i + 1]}", sub=" · ".join(x for x in (day, d, f"{r['km']} km") if x))
         km += r["km"]; hold(dur, 0.08); T += dur
-        add(type="pin", t0=T, lnglat=stops[i + 1]["lnglat"], label=names[i + 1], kind="stamp" if sh.get("stamp") else None, stampSub=d)
+        add(type="pin", t0=T, lnglat=stops[i + 1]["lnglat"], label=None if vlog else names[i + 1], kind="stamp" if sh.get("stamp") else None, stampSub=d)   # vlog：地名写在照片上，地图上不再标（会被形象挡住）
+        if vlog:
+            moment(i + 1, face_of(r["line"], end=True)); continue
         sc = {**camera[-1]}; cam_key(T + stay, {**sc, "zoom": sc["zoom"] + 0.15}, "inOut")
         for k, im in enumerate(photos.get(names[i + 1], [])[:2]):
             pi = im if isinstance(im, dict) else {"image": im}
@@ -319,7 +368,24 @@ def shot_trip(sh):
         add(type="odometer", t0=s, t1=s + dur, to=km + tot, **{"from": km}); km += tot
         add(type="caption", t0=s, t_out=s + dur, text="原路返程", sub=f"{names[-1]} → {names[0]} · {round(tot)} km")
         hold(dur, 0.05); T += dur
+    JOURNEY["km"] += km; JOURNEY["stops"] += [s["lnglat"] for s in stops]; JOURNEY["avatar"] = av
     return km
+
+
+def shot_wall(sh):
+    """片尾照片墙：拉回全程，所有照片一张张啵地落成一面墙（踩拍点），中间写「N 个机位 · 共 X km」，形象在下面挥手"""
+    global T
+    for L in layers:                                                          # 里程表、路段说明收起，让位给照片墙
+        if L["type"] in ("odometer", "caption", "title") and "t_out" not in L: L["t_out"] = round(T, 3); L["t_end"] = round(T + 0.5, 3)
+    cam = fit(GEOM or [[105, 35]], fw=0.78, dy=0.03); fly_to(cam, sh.get("fly", 1.4)); T = on_beat(T); dur = sh.get("dur", 5.5)
+    ph = JOURNEY["photos"][:9]; n = len({tuple(x) for x in JOURNEY["stops"]})
+    ts = [round(on_beat(T, k), 3) for k in range(len(ph))]
+    for t in ts: SFX.append({"t": t, "type": "pop"})
+    tt = on_beat(T, len(ph) + 1); SFX.append({"t": round(tt, 3), "type": "ding2"})
+    km = JOURNEY["km"]; kmt = f"{km:.1f}" if km < 100 else f"{km:.0f}"
+    add(type="wall", t0=T, photos=[{**p, "t": t} for p, t in zip(ph, ts)], t_title=round(tt, 3),
+        text=sh.get("text", f"{n} 个机位 · 共走 {kmt} km"), sub=sh.get("sub"), avatar=JOURNEY.get("avatar"))
+    dur = max(dur, tt - T + 2.4); hold(dur, 0.05); T += dur
 
 
 def shot_guess(sh):
@@ -392,7 +458,7 @@ def shot_title(sh):
 
 
 SHOTS = {"globe": shot_globe, "locate": shot_locate, "pins": shot_pins, "route": shot_route, "flight": lambda s: shot_route(s, arc=True), "region": shot_region,
-         "radiate": shot_radiate, "area": shot_area, "trip": shot_trip, "overview": shot_overview, "title": shot_title, "guess": shot_guess, "snap": shot_snap}
+         "radiate": shot_radiate, "area": shot_area, "trip": shot_trip, "overview": shot_overview, "title": shot_title, "guess": shot_guess, "snap": shot_snap, "wall": shot_wall}
 for i, sh in enumerate(SPEC["shots"]):
     for L in layers:                                          # 新镜头开始：旧落点只留点，字淡出（拉远后不挤成一团）
         if L["type"] == "pin" and "label_out" not in L and L["t0"] < T: L["label_out"] = round(T, 3)
@@ -404,7 +470,7 @@ for i, sh in enumerate(SPEC["shots"]):
     print(f"  {i + 1:>2}. {sh['type']:<8} 到 {T:6.2f}s")
 
 tl = {"width": W, "height": H, "fps": SPEC.get("fps", 30), "style": SPEC.get("style", "amap"), "duration": round(T + SPEC.get("tail", 0.6), 3),
-      "attribution": SPEC.get("attribution", True), "camera": camera, "layers": layers, "sfx": SFX}
+      "attribution": SPEC.get("attribution", True), "camera": camera, "layers": layers, "sfx": SFX, "music": MUSIC}
 cam_key(tl["duration"], {**camera[-1], "zoom": camera[-1]["zoom"] + 0.02}, "linear")
 out.parent.mkdir(parents=True, exist_ok=True); out.write_text(json.dumps(tl, ensure_ascii=False))
 print(f"timeline -> {out}  {tl['duration']}s  {W}×{H}  样式 {tl['style']}  图层 {len(layers)}  相机关键帧 {len(camera)}")

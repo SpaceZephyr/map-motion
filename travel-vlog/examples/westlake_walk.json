@@ -1,0 +1,120 @@
+{
+ "size": "portrait",
+ "style": "amap-journal",
+ "tail": 0.4,
+ "music": {
+  "bpm": 120,
+  "seed": 1
+ },
+ "shots": [
+  {
+   "type": "globe",
+   "to": {
+    "name": "断桥残雪",
+    "at": [
+     120.146631,
+     30.260467
+    ],
+    "wgs84": true
+   },
+   "zoom": 14.5,
+   "dur": 5.5,
+   "label": "西湖散步",
+   "sub": "2026.10.03"
+  },
+  {
+   "type": "trip",
+   "mode": "walking",
+   "stamp": false,
+   "days": false,
+   "overview": true,
+   "title": {
+    "text": "西湖散步",
+    "sub": "5 个机位",
+    "pos": "top"
+   },
+   "stops": [
+    {
+     "name": "断桥残雪",
+     "at": [
+      120.146631,
+      30.260467
+     ],
+     "wgs84": true
+    },
+    {
+     "name": "西泠印社社址",
+     "at": [
+      120.135203,
+      30.252578
+     ],
+     "wgs84": true
+    },
+    {
+     "name": "栖霞洞",
+     "at": [
+      120.131844,
+      30.259994
+     ],
+     "wgs84": true
+    },
+    {
+     "name": "曲院风荷",
+     "at": [
+      120.128572,
+      30.251578
+     ],
+     "wgs84": true
+    },
+    {
+     "name": "花港观鱼",
+     "at": [
+      120.13435,
+      30.232533
+     ],
+     "wgs84": true
+    }
+   ],
+   "photos": {
+    "断桥残雪": [
+     {
+      "image": "photos/01_1.jpg",
+      "caption": "断桥残雪"
+     }
+    ],
+    "西泠印社社址": [
+     {
+      "image": "photos/02_1.jpg",
+      "caption": "西泠印社社址"
+     }
+    ],
+    "栖霞洞": [
+     {
+      "image": "photos/03_1.jpg",
+      "caption": "栖霞洞"
+     }
+    ],
+    "曲院风荷": [
+     {
+      "image": "photos/04_1.jpg",
+      "caption": "曲院风荷"
+     }
+    ],
+    "花港观鱼": [
+     {
+      "image": "photos/05_1.jpg",
+      "caption": "花港观鱼"
+     }
+    ]
+   },
+   "avatar": {
+    "walk": "avatar/walk.png",
+    "snap": "avatar/snap.png"
+   }
+  },
+  {
+   "type": "wall",
+   "sub": "西湖散步"
+  }
+ ]
+}

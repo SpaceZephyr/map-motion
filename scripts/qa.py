@@ -57,8 +57,9 @@ def summarize(samples, W, H, step, min_dur=1.0):
             if t - cur[1] <= step * 1.6: cur[1] = t
             else: spans.append(cur); cur = [t, t]
         spans.append(cur)
+        if kind != "黑块": spans = [sp for sp in spans if sp[1] - sp[0] + step >= min_dur]   # 镜头运动时地名滑过边缘、照片飞入飞出：每一段都一闪而过的不报
+        if not spans: continue
         dur = sum(b - a + step for a, b in spans)
-        if kind != "黑块" and dur < min_dur: continue                       # 镜头运动时地名滑过画面边缘、互相擦过：一闪而过的不报
         where = "、".join(f"{a:.1f}s" if b - a < step / 2 else f"{a:.1f}–{b:.1f}s" for a, b in spans[:4]) + ("…" if len(spans) > 4 else "")
         worst = max(int(re.search(r"(\d+)(px|%)$", m).group(1)) if re.search(r"(\d+)(px|%)$", m) else 0 for _, m in ts)
         msg = key + (f" 最多 {worst}{'%' if kind == '黑块' else 'px'}" if worst else "")

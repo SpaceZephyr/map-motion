@@ -3,18 +3,11 @@
 // 对外接口和 mm.js 一样：window.prepare(t)（异步，等瓦片）→ window.renderFrame(t) → window.__canvas。
 (() => {
 'use strict';
-const TL = window.MM_TIMELINE, W = TL.width, H = TL.height, U = Math.min(W, H) / 1080, PH = TL.phase;
-const cv = document.getElementById('c'), c = cv.getContext('2d'); cv.width = W; cv.height = H; window.__canvas = cv;
+const TL = window.MM_TIMELINE, PH = TL.phase;
+const cv = document.getElementById('c'); window.__canvas = cv;
+const K = HUD(cv, TL), { W, H, U, c, clamp, lerp, E, fade, FONT, fmt, shadowText, numText, outlineText, shade, panel, card, pin, dms } = K;   // 公共 HUD 件见 hud.js
 const md = document.getElementById('m'); md.style.width = W + 'px'; md.style.height = H + 'px';
-const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v)), lerp = (a, b, e) => a + (b - a) * e;
-const E = {
-  smooth: p => { p = clamp(p); return p * p * p * (p * (6 * p - 15) + 10); },
-  out: p => 1 - Math.pow(1 - clamp(p), 3),
-  back: p => { p = clamp(p); const s = 1.7, q = p - 1; return 1 + (s + 1) * q * q * q + s * q * q; },
-};
-const fade = (t, a, b, fi = 0.5, fo = 0.5) => clamp((t - a) / fi) * (b == null ? 1 : clamp((b - t) / fo));
 const Y = TL.color, TR = TL.track, ST = TL.stats, STEP = TR[1][3] - TR[0][3];
-const FONT = (f, s) => `${s * U}px "${f}", "PingFang SC", sans-serif`;
 
 // 轨迹上第 d km 的点：[lng, lat, 海拔, km, 累计爬升]
 function at(d) {
@@ -24,12 +17,9 @@ function at(d) {
 const lineTo = d => { const i = Math.min(TR.length - 1, Math.floor(d / STEP)); const pts = TR.slice(0, i + 1).map(p => [p[0], p[1]]); const e = at(d); pts.push([e[0], e[1]]); return pts; };
 const gj = coords => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords.length > 1 ? coords : [coords[0], coords[0]] } });
 
-let map; const IMG = {};
+let map, IMG = {};
 async function boot() {
-  for (const [fam, f] of [['MM-Bold', 'NotoSansSC-700'], ['MM-Black', 'NotoSansSC-900'], ['MM-Hand', 'LXGWWenKai-500'], ['MM-Num', 'Anton-400']]) {
-    const ff = new FontFace(fam, `url(/asset/fonts/${f}.woff)`); await ff.load(); document.fonts.add(ff);
-  }
-  await Promise.all(TL.layers.map(L => new Promise((res, rej) => { const im = new Image(); im.onload = () => { IMG[L.image] = im; res(); }; im.onerror = () => rej(new Error('图片加载失败 ' + L.image)); im.src = L.image; })));
+  await K.loadFonts(); IMG = await K.loadImages(TL.layers.map(L => L.image));
   const f0 = TL.frames[0];
   map = new maplibregl.Map({
     container: 'm', interactive: false, attributionControl: false, pixelRatio: 1, fadeDuration: 0, maxPitch: 85,
@@ -57,6 +47,7 @@ async function boot() {
   });
   map.on('error', e => console.warn('[maplibre]', e.error && e.error.message));
   await new Promise(r => map.once('load', r));
+  if (TL.sun) SUN.boot();
 }
 
 let lastFull = -1, lastDone = -1;
@@ -86,6 +77,7 @@ window.prepare = async t => {
   const dk = Math.round(F[5] * 2000);
   if (dk !== lastDone) { pend.push(setData('done', gj(F[5] > 0 ? lineTo(F[5]) : [[TR[0][0], TR[0][1]]]))); lastDone = dk; }
   map.setPaintProperty('done', 'line-opacity', F[5] > 0.001 ? 1 : 0); map.setPaintProperty('done-glow', 'line-opacity', F[5] > 0.001 ? 0.45 : 0);
+  if (TL.sun) pend.push(SUN.prepare(t));
   await Promise.all(pend); await settle();
   for (let k = 0; k < 6 && !map.areTilesLoaded(); k++) await settle();   // 连续出帧时远处地形瓦片会漏：没齐就再等
 };
@@ -93,20 +85,11 @@ window.prepare = async t => {
 // ================= HUD
 const proj = (ll, ele) => { const p = map.project(ll); return [p.x, p.y]; };
 const onScreen = p => p[0] > -50 && p[0] < W + 50 && p[1] > -50 && p[1] < H + 50;
-function shadowText(txt, x, y, font, color = '#fff', align = 'left', blur = 14) {
-  c.save(); c.font = font; c.textAlign = align; c.textBaseline = 'alphabetic'; c.shadowColor = 'rgba(0,0,0,.75)'; c.shadowBlur = blur * U; c.shadowOffsetY = 2 * U;
-  c.fillStyle = color; c.fillText(txt, x, y); c.shadowBlur = 0; c.shadowOffsetY = 0; c.fillText(txt, x, y); c.restore();
-}
-function numText(txt, x, y, size, color = Y, align = 'left') {           // Anton 加斜切，接近参考图的斜体数字
-  c.save(); c.translate(x, y); c.transform(1, 0, -0.16, 1, 0, 0); shadowText(txt, 0, 0, `${size * U}px "MM-Num"`, color, align, 16); c.restore();
-}
-const fmt = v => Math.round(v).toLocaleString('en-US');
-
 function drawMarks(t, a) {
   if (a <= 0) return;
   for (const m of TL.marks) {
     const p = proj(m.at); if (!onScreen(p)) continue;
-    c.save(); c.globalAlpha = a * clamp((p[1] - 290 * U) / (60 * U));        // 别压住顶部的标题和里程
+    c.save(); c.globalAlpha = a * clamp((p[1] - (TL.sun ? 470 : 290) * U) / (60 * U));        // 别压住顶部的标题和里程
     c.fillStyle = '#fff'; c.beginPath(); c.arc(p[0], p[1], 6 * U, 0, 7); c.fill(); c.lineWidth = 2 * U; c.strokeStyle = 'rgba(0,0,0,.6)'; c.stroke();
     const lab = m.ele ? `${m.name} ${fmt(m.ele)}m` : m.name;
     c.font = FONT('MM-Bold', 30); c.lineJoin = 'round'; c.strokeStyle = 'rgba(0,0,0,.72)'; c.lineWidth = 7 * U; c.textBaseline = 'middle';
@@ -122,18 +105,6 @@ function drawHiker(t, d, a) {
   const g = c.createRadialGradient(p[0], p[1], 0, p[0], p[1], 34 * U); g.addColorStop(0, 'rgba(255,250,170,.9)'); g.addColorStop(1, 'rgba(255,240,60,0)');
   c.fillStyle = g; c.beginPath(); c.arc(p[0], p[1], 34 * U, 0, 7); c.fill();
   c.fillStyle = '#fff'; c.beginPath(); c.arc(p[0], p[1], 13 * U, 0, 7); c.fill(); c.fillStyle = Y; c.beginPath(); c.arc(p[0], p[1], 9 * U, 0, 7); c.fill();
-  c.restore();
-}
-
-function card(im, x, y, size, a, label) {                                // 白边照片牌 + 下方尖角，尖角对准地面那一点
-  const r = im.width / im.height, w = r >= 1 ? size : size * r, h = r >= 1 ? size / r : size, b = 6 * U * size / 160, stem = 26 * U * size / 160;
-  const bx = x - w / 2, by = y - stem - h - b * 2;
-  c.save(); c.globalAlpha = a; c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 18 * U; c.shadowOffsetY = 6 * U;
-  c.fillStyle = '#fff'; c.beginPath(); c.roundRect(bx - b, by, w + 2 * b, h + 2 * b, 8 * U);
-  c.moveTo(x - stem * 0.55, by + h + 2 * b - 1); c.lineTo(x, y); c.lineTo(x + stem * 0.55, by + h + 2 * b - 1); c.fill();
-  c.shadowBlur = 0; c.shadowOffsetY = 0; c.save(); c.beginPath(); c.roundRect(bx, by + b, w, h, 4 * U); c.clip(); c.drawImage(im, bx, by + b, w, h); c.restore();
-  if (label) { c.font = FONT('MM-Bold', Math.max(24, size / 8.5) / 1); c.textAlign = 'center'; c.lineJoin = 'round'; c.lineWidth = 7 * U; c.strokeStyle = 'rgba(0,0,0,.7)';
-    c.strokeText(label, x, by - 14 * U); c.fillStyle = '#fff'; c.fillText(label, x, by - 14 * U); }
   c.restore();
 }
 
@@ -197,14 +168,7 @@ function drawFollowHud(t, d, a) {
   drawProfile(d, a);
 }
 
-function drawTitle(t, a, y) {
-  if (a <= 0 || !TL.title) return;
-  c.save(); c.globalAlpha = a; const k = E.out(a);
-  c.font = FONT('MM-Black', 92); const ts = 92 * Math.min(1, (W - 100 * U) / c.measureText(TL.title).width);   // 长标题缩字号
-  shadowText(TL.title, W / 2, y + (1 - k) * 30 * U, FONT('MM-Black', ts), '#fff', 'center', 22);
-  if (TL.sub) shadowText(TL.sub, W / 2, y + 70 * U + (1 - k) * 30 * U, FONT('MM-Bold', 38), 'rgba(255,255,255,.92)', 'center');
-  c.restore();
-}
+const drawTitle = (t, a, y) => K.title(TL.title, TL.sub, y, a);
 
 function drawStats(t, a) {
   if (a <= 0) return; const k = E.out((t - PH.f1 - 1.6) / 1.6);
@@ -224,28 +188,135 @@ function drawStats(t, a) {
 function drawPlace(t) {                                                   // 单点模式：落点脉冲 + 底部地名卡（坐标、海拔）
   const P = TL.place; if (!P) return;
   const a = fade(t, PH.dive - 0.6, null, 0.8); if (a <= 0) return;
-  const p = proj(P.at); c.save(); c.globalAlpha = a;
-  for (const k of [0, 0.5]) { const q = (t * 0.8 + k) % 1; c.strokeStyle = Y; c.globalAlpha = a * (1 - q); c.lineWidth = 5 * U; c.beginPath(); c.arc(p[0], p[1], (14 + 70 * q) * U, 0, 7); c.stroke(); }
-  c.globalAlpha = a; c.fillStyle = '#fff'; c.beginPath(); c.arc(p[0], p[1], 14 * U, 0, 7); c.fill(); c.fillStyle = Y; c.beginPath(); c.arc(p[0], p[1], 9 * U, 0, 7); c.fill();
-  const k = E.out(clamp((t - PH.dive) / 0.9)), y = H - 330 * U + (1 - k) * 60 * U; c.globalAlpha = a * k;
-  const dm = (v, pos, neg) => { const x = Math.abs(v), d = Math.floor(x), m = Math.floor((x - d) * 60), s2 = Math.round(((x - d) * 60 - m) * 600) / 10; return `${d}°${String(m).padStart(2, '0')}′${s2.toFixed(1).padStart(4, '0')}″${v >= 0 ? pos : neg}`; };
+  const p = proj(P.at); pin(p[0], p[1], a, t); c.save();
+  const k = E.out(clamp((t - PH.dive) / 0.9)), y = H - 330 * U + (1 - k) * 60 * U; c.globalAlpha = a * k; const dm = dms;
   shadowText(P.name, 64 * U, y, FONT('MM-Black', 84), '#fff', 'left', 20);
   shadowText(`${dm(P.at[1], 'N', 'S')}   ${dm(P.at[0], 'E', 'W')}`, 66 * U, y + 70 * U, `${36 * U}px "MM-Num"`, 'rgba(255,255,255,.9)');
   shadowText('海拔', 66 * U, y + 150 * U, FONT('MM-Bold', 30), '#fff'); numText(`${fmt(P.ele * clamp((t - PH.dive) / 1.6))} m`, 140 * U, y + 156 * U, 72);
   c.restore();
 }
 
-function shade(y0, y1, a) {
-  if (a <= 0) return; const g = c.createLinearGradient(0, y0, 0, y1); g.addColorStop(0, `rgba(0,0,0,${a})`); g.addColorStop(0.55, `rgba(0,0,0,${a * 0.45})`); g.addColorStop(1, 'rgba(0,0,0,0)');
-  c.fillStyle = g; c.fillRect(0, Math.min(y0, y1), W, Math.abs(y1 - y0));
-}
+// ================= 光线推演（sunlight.py 出的 TL.sun）：太阳方位/高度驱动山体明暗和天空；时钟、罗盘、关键时刻表
+// series[i] = [方位, 高度, 当地分钟, 山峰受光余量°, 机位受光余量°]（余量 > 0 即照到）
+const SUN = TL.sun && (() => {
+  const S = TL.sun, N = S.series.length; let cur = S.series[0], lastAz = null, KD = 0;   // KD：0＝俯冲时的白天样子，1＝推演里的真实光线
+  const dest = (ll, brg, km) => {
+    const d = km / 6371, b = brg * Math.PI / 180, la1 = ll[1] * Math.PI / 180, lo1 = ll[0] * Math.PI / 180;
+    const la2 = Math.asin(Math.sin(la1) * Math.cos(d) + Math.cos(la1) * Math.sin(d) * Math.cos(b));
+    return [(lo1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(la1), Math.cos(d) - Math.sin(la1) * Math.sin(la2))) * 180 / Math.PI, la2 * 180 / Math.PI];
+  };
+  const mix = (a, b, e) => a.map((v, k) => Math.round(lerp(v, b[k], e)));
+  const SKY = [[-10, [6, 10, 26], [18, 26, 56]], [-4, [20, 32, 74], [92, 88, 138]], [-1, [38, 56, 116], [232, 138, 92]], [3, [60, 102, 174], [255, 194, 138]], [10, [74, 124, 196], [214, 228, 240]]];
+  const gold = () => KD * clamp(cur[3] / 1.2) * clamp((6 - cur[1]) / 3);       // 山顶照到了、太阳还低：金色
+  const day = () => lerp(1, clamp((cur[1] + 4) / 10), KD);
+  const hhmm = m => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
+  const rayLen = S.spot ? Math.max(4, Math.hypot((S.spot[0] - S.peak[0]) * 98, (S.spot[1] - S.peak[1]) * 111) * 0.55) : 6;
+
+  function boot() {
+    map.addSource('hs', { type: 'raster-dem', tiles: ['/tile/dem/{z}/{x}/{y}'], encoding: 'terrarium', tileSize: 256, maxzoom: 14 });
+    map.addLayer({ id: 'hill', type: 'hillshade', source: 'hs', paint: { 'hillshade-illumination-anchor': 'map', 'hillshade-exaggeration': 0.75, 'hillshade-accent-color': 'rgba(0,0,0,0)' } }, 'full-case');
+    map.addSource('sight', { type: 'geojson', data: gj(S.spot ? [S.spot, S.peak] : [S.peak]) });
+    map.addSource('ray', { type: 'geojson', data: gj([S.peak]) });
+    map.addLayer({ id: 'sight', type: 'line', source: 'sight', paint: { 'line-color': '#fff', 'line-width': 3 * U, 'line-opacity': S.spot ? 0.85 : 0, 'line-dasharray': [2, 2] } });
+    map.addLayer({ id: 'ray-glow', type: 'line', source: 'ray', layout: { 'line-cap': 'round' }, paint: { 'line-color': Y, 'line-width': 20 * U, 'line-blur': 12 * U, 'line-opacity': 0 } });
+    map.addLayer({ id: 'ray', type: 'line', source: 'ray', layout: { 'line-cap': 'round' }, paint: { 'line-color': Y, 'line-width': 5 * U, 'line-opacity': 0 } });
+  }
+  function prepare(t) {
+    cur = S.series[clamp(Math.round(t * TL.fps), 0, N - 1)]; KD = E.smooth((t - PH.dive + 1.0) / 1.8);   // 俯冲落地前后天色才暗下去
+    const [az, al] = cur, g = gold(), d = day(), ra = clamp((al + 1) / 2) * 0.9;
+    map.setPaintProperty('hill', 'hillshade-illumination-direction', az);
+    map.setPaintProperty('hill', 'hillshade-highlight-color', `rgba(255,${Math.round(lerp(236, 168, g))},${Math.round(lerp(214, 84, g))},${((0.12 + 0.5 * g) * clamp((al + 3) / 3)).toFixed(3)})`);
+    map.setPaintProperty('hill', 'hillshade-shadow-color', `rgba(8,16,44,${lerp(0.78, 0.42, d).toFixed(3)})`);
+    map.setPaintProperty('sat', 'raster-brightness-max', lerp(0.42, 1, d));
+    map.setPaintProperty('sat', 'raster-saturation', lerp(-0.45, 0.05, d));
+    map.setPaintProperty('ray', 'line-opacity', ra * KD); map.setPaintProperty('ray-glow', 'line-opacity', ra * 0.5);
+    if (lastAz !== null && Math.abs(az - lastAz) < 0.05) return Promise.resolve();
+    lastAz = az; return setData('ray', gj([S.peak, dest(S.peak, az, rayLen)]));   // 光从这个方向照到山顶
+  }
+  function sky() {
+    const al = cur[1]; let k = 0; while (k < SKY.length - 2 && al > SKY[k + 1][0]) k++;
+    const [a0, t0, b0] = SKY[k], [a1, t1, b1] = SKY[k + 1], e = clamp((al - a0) / (a1 - a0));
+    return [mix(SKY[4][1], mix(t0, t1, e), KD), mix(SKY[4][2], mix(b0, b1, e), KD)];
+  }
+  function behind() {                                                     // 太阳本体：画在地图下面，地形自然挡住
+    const [az, al] = cur; if (al < -1.5 || F[2] < 8) return;
+    const fov = map.transform.fov * Math.PI / 180, f = (H / 2) / Math.tan(fov / 2), daz = ((az - F[4] + 540) % 360) - 180;
+    if (Math.abs(daz) > 75) return;
+    const x = W / 2 + f * Math.tan(daz * Math.PI / 180), y = H / 2 - f * Math.tan((al - (F[3] - 90)) * Math.PI / 180);
+    c.save(); c.globalCompositeOperation = 'screen';
+    const g = c.createRadialGradient(x, y, 0, x, y, 260 * U); g.addColorStop(0, 'rgba(255,214,140,.95)'); g.addColorStop(0.12, 'rgba(255,190,100,.55)'); g.addColorStop(1, 'rgba(255,140,60,0)');
+    c.fillStyle = g; c.fillRect(x - 260 * U, y - 260 * U, 520 * U, 520 * U);
+    c.fillStyle = '#fff6e0'; c.beginPath(); c.arc(x, y, 22 * U, 0, 7); c.fill(); c.restore();
+  }
+  function compass(x, y, r, a) {                                          // 北朝上：白扇形＝镜头朝向，金点＝太阳方位
+    if (a <= 0) return; const [az, al] = cur, P = deg => [Math.sin(deg * Math.PI / 180), -Math.cos(deg * Math.PI / 180)];
+    c.save(); c.globalAlpha = a; c.translate(x, y);
+    c.fillStyle = 'rgba(8,10,14,.5)'; c.beginPath(); c.arc(0, 0, r, 0, 7); c.fill(); c.strokeStyle = 'rgba(255,255,255,.75)'; c.lineWidth = 2 * U; c.stroke();
+    const hf = Math.atan(Math.tan(map.transform.fov * Math.PI / 360) * W / H) * 180 / Math.PI, b = F[4];
+    c.fillStyle = 'rgba(255,255,255,.2)'; c.beginPath(); c.moveTo(0, 0); c.arc(0, 0, r * 0.92, (b - hf - 90) * Math.PI / 180, (b + hf - 90) * Math.PI / 180); c.closePath(); c.fill();
+    for (let k = 0; k < 360; k += 30) { const [sx, sy] = P(k); c.beginPath(); c.moveTo(sx * r * 0.9, sy * r * 0.9); c.lineTo(sx * r, sy * r); c.stroke(); }
+    for (const [lab, k] of [['N', 0], ['E', 90], ['S', 180], ['W', 270]]) { const [sx, sy] = P(k); shadowText(lab, sx * r * 0.72, sy * r * 0.72 + 9 * U, `${26 * U}px "MM-Num"`, lab === 'N' ? Y : '#fff', 'center', 4); }
+    const [sx, sy] = P(az), up = al > -0.3;
+    c.strokeStyle = up ? Y : 'rgba(255,255,255,.5)'; c.lineWidth = 3 * U; c.beginPath(); c.moveTo(0, 0); c.lineTo(sx * r * 0.8, sy * r * 0.8); c.stroke();
+    c.fillStyle = up ? Y : 'rgba(200,210,230,.8)'; c.beginPath(); c.arc(sx * r * 0.8, sy * r * 0.8, 13 * U, 0, 7); c.fill();
+    c.restore();
+    shadowText(`方位 ${az.toFixed(0)}°`, x, y + r + 44 * U, FONT('MM-Bold', 28), '#fff', 'center', 8);
+  }
+  function events(t, a) {                                                 // 关键时刻表：到点打勾、高亮一下
+    if (a <= 0) return; const ev = S.events, rh = 92 * U, x0 = 48 * U, x1 = W - 48 * U, y0 = H - 96 * U - ev.length * rh - 36 * U;
+    c.save(); c.globalAlpha = a; panel(x0, y0, x1 - x0, ev.length * rh + 36 * U, 0.55);
+    ev.forEach((e, i) => {
+      const y = y0 + 18 * U + i * rh, done = e.t != null ? t >= e.t : (e.time !== '—' && t >= PH.l1), hl = e.t != null ? fade(t, e.t, e.t + 1.6, 0.15, 0.8) : 0;
+      if (hl > 0) { c.fillStyle = `rgba(255,194,74,${0.28 * hl})`; c.beginPath(); c.roundRect(x0 + 8 * U, y + 4 * U, x1 - x0 - 16 * U, rh - 8 * U, 18 * U); c.fill(); }
+      const cx = x0 + 46 * U, cy = y + rh / 2;
+      c.lineWidth = 3 * U; c.strokeStyle = done ? Y : 'rgba(255,255,255,.55)'; c.fillStyle = Y; c.beginPath(); c.arc(cx, cy, 17 * U, 0, 7); done ? c.fill() : c.stroke();
+      if (done) { c.strokeStyle = '#1a1a1a'; c.lineWidth = 4 * U; c.beginPath(); c.moveTo(cx - 8 * U, cy); c.lineTo(cx - 2 * U, cy + 7 * U); c.lineTo(cx + 9 * U, cy - 7 * U); c.stroke(); }
+      shadowText(e.name, x0 + 86 * U, y + 44 * U, FONT('MM-Bold', 34), done ? '#fff' : 'rgba(255,255,255,.7)', 'left', 6);
+      if (e.note) shadowText(e.note, x0 + 86 * U, y + 78 * U, FONT('MM-Bold', 22), 'rgba(255,255,255,.6)', 'left', 4);
+      numText(e.time, x1 - 30 * U, y + 66 * U, 54, done ? Y : 'rgba(255,255,255,.6)', 'right');
+    });
+    c.restore();
+  }
+  function render(t) {
+    const g = gold(), nt = (1 - day()) * 0.45;
+    if (nt > 0) { c.save(); c.globalCompositeOperation = 'multiply'; c.fillStyle = `rgba(70,90,150,${nt})`; c.fillRect(0, 0, W, H); c.restore(); }   // 天没亮：整体压蓝
+    if (g > 0) {                                                          // 日照金山：山顶一圈暖光
+      const p = proj(S.peak), r = 420 * U; c.save(); c.globalCompositeOperation = 'soft-light';
+      const gr = c.createRadialGradient(p[0], p[1], 0, p[0], p[1], r); gr.addColorStop(0, `rgba(255,150,40,${0.9 * g})`); gr.addColorStop(1, 'rgba(255,150,40,0)');
+      c.fillStyle = gr; c.fillRect(p[0] - r, p[1] - r, 2 * r, 2 * r); c.restore();
+    }
+    const a0 = fade(t, PH.dive - 0.6, null, 0.8), la = fade(t, PH.l0 - 0.05, PH.l1 + 0.3, 0.5, 0.5);   // 时钟罗盘等标题退完再出，片尾标题等它们退完再进
+    shade(0, 560 * U, 0.62 * a0); shade(H, H - 700 * U, 0.7 * a0);
+    drawMarks(t, fade(t, PH.dive - 0.4, null, 0.8));
+    drawTitle(t, fade(t, PH.dive - 1.0, PH.l0 - 0.1, 0.8, 0.5), 240 * U);
+    drawTitle(t, fade(t, PH.l1 + 0.9, null, 0.8), 240 * U);
+    if (la > 0) {
+      c.save(); c.globalAlpha = la;
+      numText(hhmm(cur[2]), 56 * U, 196 * U, 132, '#fff');
+      shadowText(`${S.date}  ${S.rise ? '日出' : '日落'}`, 60 * U, 258 * U, FONT('MM-Bold', 32), '#fff');
+      shadowText(`太阳高度 ${cur[1] >= 0 ? '+' : ''}${cur[1].toFixed(1)}°`, 60 * U, 308 * U, FONT('MM-Bold', 32), cur[1] > -0.3 ? Y : 'rgba(255,255,255,.8)');
+      if (g > 0.25) {
+        const q = 0.6 + 0.4 * Math.sin(t * 6); c.globalAlpha = la * clamp((g - 0.25) / 0.2);
+        c.fillStyle = Y; c.beginPath(); c.arc(74 * U, 362 * U, 12 * U * q + 4 * U, 0, 7); c.fill();
+        shadowText('日照金山中', 98 * U, 376 * U, FONT('MM-Black', 40), Y);
+      }
+      c.restore();
+      compass(W - 170 * U, 170 * U, 108 * U, la);
+    }
+    events(t, fade(t, PH.l0 - 0.2, null, 0.6));
+    K.attribution(TL.attribution);
+  }
+  return { boot, prepare, sky, behind, render };
+})();
 
 window.renderFrame = t => {
   const sk = clamp((F[2] - 4) / 3);                                       // 天空自己画：MapLibre 的天空在地球/地形切换后常出不来，露出黑底
+  const [top, bot] = TL.sun ? SUN.sky() : [[74, 124, 196], [214, 228, 240]];
   const g = c.createLinearGradient(0, 0, 0, H * 0.6);
-  g.addColorStop(0, `rgb(${lerp(0, 74, sk)},${lerp(0, 124, sk)},${lerp(0, 196, sk)})`); g.addColorStop(1, `rgb(${lerp(0, 214, sk)},${lerp(0, 228, sk)},${lerp(0, 240, sk)})`);
-  c.fillStyle = g; c.fillRect(0, 0, W, H); c.drawImage(map.getCanvas(), 0, 0, W, H);
+  g.addColorStop(0, `rgb(${top.map(v => lerp(0, v, sk))})`); g.addColorStop(1, `rgb(${bot.map(v => lerp(0, v, sk))})`);
+  c.fillStyle = g; c.fillRect(0, 0, W, H); if (TL.sun) SUN.behind(); c.drawImage(map.getCanvas(), 0, 0, W, H);
   if (F[2] < 6) window.__qaSkipBlack = true;                              // 太空本来就是黑的
+  if (TL.sun) return SUN.render(t);
   const d = F[5], hudA = fade(t, PH.f0 - 0.4, PH.f1 + 0.9, 0.6, 0.6), topA = Math.max(hudA, fade(t, PH.dive - 1.0, PH.f0 - 0.4, 0.8, 0.6), fade(t, PH.f1 + 1.0, null, 0.8));
   shade(0, 520 * U, topA * 0.62); shade(H, H - 620 * U, Math.max(hudA, fade(t, PH.f1 + 1.4, null, 0.7), TL.place ? fade(t, PH.dive - 0.6, null, 0.8) : 0) * 0.7);   // 雪山上白字看不清：上下压暗
   drawMarks(t, fade(t, PH.dive - 0.4, null, 0.8));
@@ -255,7 +326,7 @@ window.renderFrame = t => {
   drawTitle(t, fade(t, PH.f1 + 1.0, null, 0.8), 240 * U);
   drawFollowHud(t, d, hudA);
   drawStats(t, fade(t, PH.f1 + 1.4, null, 0.7));
-  c.save(); c.font = FONT('MM-Bold', 17); c.fillStyle = 'rgba(255,255,255,.55)'; c.textAlign = 'right'; c.fillText(TL.attribution, W - 18 * U, H - 14 * U); c.restore();
+  K.attribution(TL.attribution);
 };
 
 boot().then(() => { window.__ready = true; }, e => { window.__bootFailed = String(e && e.stack || e); });

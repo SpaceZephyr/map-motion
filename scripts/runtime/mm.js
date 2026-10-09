@@ -14,6 +14,7 @@ const E = {
   out: p => 1 - Math.pow(1 - clamp(p), 3),
   back: p => { p = clamp(p); const s = 1.7, q = p - 1; return 1 + (s + 1) * q * q * q + s * q * q; },
   linear: p => clamp(p),
+  walk: p => { p = clamp(p); const r = 0.08; return p < r ? p * p / (2 * r) / (1 - r) : p > 1 - r ? 1 - (1 - p) * (1 - p) / (2 * r) / (1 - r) : (p - r / 2) / (1 - r); },   // 起步、到站各缓一下，中间匀速走
 };
 const rng = s => () => ((s = Math.imul(s ^ (s >>> 15), 0x2c1b3c6d) ^ (s + 0x6d2b79f5)) >>> 0) / 4294967296;
 
@@ -27,6 +28,7 @@ const ST = {
   light:     { bg: '#f7f7f4', ocean: '#e4eef5', land: '#ffffff', coast: 'rgba(40,50,70,.35)', prov: 'rgba(40,50,70,.18)', route: '#ff5a36', route2: '#2f6bff', casing: '#ffffff', glow: 0, text: '#151a24', halo: 'rgba(247,247,244,.95)', chip: '#151a24', chipText: '#ffffff', accent: '#ff5a36', font: 'MM-Bold', dash: 0 },
   journal:   { bg: '#f3ecdc', paper: true, ocean: 'rgba(150,190,215,.35)', land: 'rgba(240,226,190,.55)', coast: 'rgba(60,45,30,.55)', prov: 'rgba(60,45,30,.3)', provFill: ['#e9b49c', '#b9d3a2', '#f0cf7c', '#c8b6d6', '#a9c7d6', '#dcc29c'], route: '#c0392b', route2: '#2f6fa8', casing: 'rgba(255,255,255,.6)', glow: 0, text: '#2b241c', halo: 'rgba(243,236,220,.9)', chip: '#f7f2e6', chipText: '#2b241c', accent: '#b83a2e', font: 'MM-Hand', dash: [18, 11] },
   'amap-gray':  { tiles: 'amap', tileFilter: 'grayscale(1) contrast(1.08) brightness(1.04)', bg: '#f2f2f2', ocean: '#cfd6dc', globeOcean: '#8d99a6', globeLand: '#f4f4f4', land: '#f4f4f4', coast: 'rgba(60,60,60,.45)', prov: 'rgba(60,60,60,.25)', route: '#ff4d3d', route2: '#2f6bff', casing: '#ffffff', glow: 0, text: '#111', halo: 'rgba(255,255,255,.92)', chip: '#111', chipText: '#ffffff', accent: '#ff4d3d', font: 'MM-Bold', dash: 0 },
+  'amap-journal': { tiles: 'amap', tileFilter: 'sepia(.28) saturate(.78) brightness(1.06) contrast(.92) hue-rotate(-4deg)', paper: true, paperOver: 0.45, bg: '#f3ecdc', ocean: '#c9dbe3', globeOcean: '#8fb6cc', globeLand: '#f1e7d2', land: '#f1e7d2', coast: 'rgba(90,65,35,.5)', prov: 'rgba(90,65,35,.25)', route: '#ff6b4a', route2: '#2f8fd6', casing: 'rgba(255,255,255,.85)', glow: 0, text: '#3a2a18', halo: 'rgba(250,244,230,.95)', chip: '#fffaf0', chipText: '#3a2a18', accent: '#ff6b4a', font: 'MM-Hand', dash: [16, 10] },
   'amap-sepia': { tiles: 'amap', tileFilter: 'sepia(.7) saturate(.85) contrast(.95) brightness(.98)', bg: '#efe4cf', ocean: '#c9bfa5', globeOcean: '#a3967a', globeLand: '#f1e7d2', land: '#f1e7d2', coast: 'rgba(90,65,35,.55)', prov: 'rgba(90,65,35,.3)', route: '#9b2d1f', route2: '#2d4a6b', casing: 'rgba(255,248,235,.8)', glow: 0, text: '#3a2a18', halo: 'rgba(239,228,207,.92)', chip: '#3a2a18', chipText: '#f1e7d2', accent: '#9b2d1f', font: 'MM-Hand', dash: 0 },
   neon:      { bg: '#0d0221', ocean: '#0d0221', globeOcean: '#170a3a', globeLand: '#2a1258', land: '#1a0b3b', coast: 'rgba(255,43,214,.7)', prov: 'rgba(0,240,255,.25)', grid: 'rgba(255,43,214,.06)', route: '#00f0ff', route2: '#ff2bd6', casing: 'rgba(0,0,0,0)', glow: 26, text: '#fdf0ff', halo: 'rgba(13,2,33,.85)', chip: 'rgba(30,8,60,.9)', chipText: '#fdf0ff', accent: '#ff2bd6', font: 'MM-Bold', dash: 0 },
   ink:       { bg: '#f1ecdf', paper: true, ocean: 'rgba(40,40,40,.05)', globeOcean: '#e6e0d0', globeLand: '#bdb7a8', land: 'rgba(30,30,30,.13)', coast: 'rgba(20,20,20,.75)', prov: 'rgba(20,20,20,.28)', route: '#c8312b', route2: '#1f1f1f', casing: 'rgba(241,236,223,.7)', glow: 0, text: '#1b1b1b', halo: 'rgba(241,236,223,.92)', chip: '#1b1b1b', chipText: '#f1ecdf', accent: '#c8312b', font: 'MM-Hand', dash: 0 },
@@ -65,7 +67,7 @@ async function boot() {
   for (const [fam, f] of fonts) { const ff = new FontFace(fam, `url(/asset/fonts/${f}.woff)`); await ff.load(); document.fonts.add(ff); }
   ASSET.land = await (await fetch('/asset/land.json')).json();
   ASSET.china = await (await fetch('/asset/china.json')).json();
-  const imgs = new Set(); for (const L of TL.layers) { if (L.image) imgs.add(L.image); for (const f of L.frames || []) imgs.add(f); }
+  const imgs = new Set(); for (const L of TL.layers) { if (L.image) imgs.add(L.image); for (const f of L.frames || []) imgs.add(f); for (const f of Object.values(L.avatar || {})) imgs.add(f); for (const ph of L.photos || []) imgs.add(ph.image); }
   await Promise.all([...imgs].map(u => new Promise((res, rej) => { const im = new Image(); im.onload = () => { IMG[u] = im; res(); }; im.onerror = () => rej(new Error('图片加载失败 ' + u)); im.src = u; })));
   if (S.paper) ASSET.paper = paperTile(S.bg);
   ASSET.globe = await globeTexture();
@@ -213,6 +215,7 @@ function drawTiles() {
     }
   }
   c.restore();
+  if (S.paperOver) { c.save(); c.globalCompositeOperation = 'multiply'; c.globalAlpha = S.paperOver; c.fillStyle = c.createPattern(ASSET.paper, 'repeat'); c.fillRect(0, 0, W, H); c.restore(); }   // 手账：瓦片上压一层纸纹
 }
 // 地球填色：逐像素反投影取纹理（正射投影下多边形裁剪易破，逐像素最稳）。
 // 卫星样式用高德卫星瓦片 z=3 拼成的墨卡托纹理（真实地表）；其它样式把陆地矢量画进等经纬度纹理。
@@ -305,7 +308,19 @@ function arcPts(L) {
   const sgn = ny > 0 ? -1 : 1;                                        // 永远往屏幕上方拱
   return pts.map((p, i) => { const s = i / (pts.length - 1), k = Math.sin(Math.PI * s) * h * sgn; return [p[0] + nx * k, p[1] + ny * k]; });
 }
-function vehicle(kind, x, y, ang, t, col) {
+// 卡通形象贴纸：脚底对准 (x, y)，走路一颠一颠、左右晃、脚下扬尘；face = 1 朝右 / -1 朝左（贴纸本身朝右）
+function avatar(im, x, y, face, t, { walk = false, hop = 0, h = 230 } = {}) {
+  if (!im) return; const hh = h * U, ww = hh * im.width / im.height, ph = t * 2 * Math.PI * 2.2;
+  const bob = walk ? Math.abs(Math.sin(ph)) * 14 * U : 0, tilt = walk ? Math.sin(ph) * 0.06 : 0, sq = walk ? 1 - 0.04 * Math.cos(2 * ph) : 1;
+  c.save(); c.fillStyle = 'rgba(40,30,20,.22)'; c.beginPath(); c.ellipse(x, y + 2 * U, ww * 0.32 * (1 - bob / (60 * U)), 10 * U, 0, 0, 7); c.fill();
+  if (walk) for (let k = 0; k < 3; k++) {                                   // 身后的小尘土
+    const q = (t * 2.2 + k / 3) % 1; c.globalAlpha = 0.35 * (1 - q); c.fillStyle = '#e6d6b8';
+    c.beginPath(); c.arc(x - face * (18 + 46 * q) * U, y - (4 + 10 * q) * U, (5 + 9 * q) * U, 0, 7); c.fill(); }
+  c.globalAlpha = 1; c.translate(x, y - bob - hop * U); c.rotate(tilt); c.scale(face * 1 / sq, sq);
+  c.drawImage(im, -ww / 2, -hh, ww, hh); c.restore();
+}
+function vehicle(kind, x, y, ang, t, col, L) {
+  if (kind === 'avatar') return avatar(IMG[L.avatar.walk], x, y, Math.cos(ang) < -0.15 ? -1 : 1, t, { walk: true });
   c.save(); c.translate(x, y); const s = U * 1.1;
   if (kind === 'plane') {
     c.rotate(ang); c.scale(s, s); c.fillStyle = '#ffffff'; c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 2;
@@ -355,7 +370,7 @@ function pin(L, t) {
     c.save(); c.translate(x, yy); c.scale(U, U); c.strokeStyle = '#2b2b2b'; c.lineWidth = 4; c.beginPath(); c.moveTo(0, 0); c.lineTo(0, -78); c.stroke();
     c.fillStyle = col; c.beginPath(); c.moveTo(0, -78); for (let i = 0; i <= 10; i++) { const u = i / 10; c.lineTo(u * 52, -78 + Math.sin(u * 5 + t * 7) * 4 * u); } for (let i = 10; i >= 0; i--) { const u = i / 10; c.lineTo(u * 52, -48 + Math.sin(u * 5 + t * 7) * 4 * u); } c.closePath(); c.fill();
     c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(0, 2, 12, 4, 0, 0, 7); c.fill(); c.restore();
-  } else if (L.kind === 'stamp' || S.font === 'MM-Hand') {
+  } else if (L.kind === 'stamp' || (S.font === 'MM-Hand' && !S.tiles)) {   // 手账矢量底图默认盖章；街道级瓦片样式用普通针
     const sc = lt < 0.5 ? 1 + 0.6 * (1 - E.out(lt / 0.5)) : 1; c.save(); c.translate(x + 40 * U, y + 30 * U); c.rotate(-0.2); c.scale(sc * U, sc * U);
     c.globalAlpha = fade * clamp(lt / 0.12) * 0.85; c.strokeStyle = col; c.fillStyle = col; c.lineWidth = 4; c.beginPath(); c.arc(0, 0, 44, 0, 7); c.stroke(); c.lineWidth = 2; c.beginPath(); c.arc(0, 0, 36, 0, 7); c.stroke();
     c.font = `${(L.label || '').length > 3 ? 18 : 24}px "MM-Black"`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText((L.label || '').slice(0, 5), 0, -4); c.font = '13px "MM-Num"'; c.fillText(L.stampSub || '', 0, 18); c.restore();
@@ -379,7 +394,7 @@ function route(L, t) {
   c.save(); c.globalAlpha = fade;
   if (L.ghost) stroke(pts, col, w * 0.5, { dash: [6, 10] });                       // 先铺一条淡虚线预告全程
   if (!L.hideLine) stroke(partial(pts, cum, d), col, w, { dash: L.dash ?? (S.dash || null), glow, casing: L.arc ? null : S.casing });
-  if (L.vehicle && p > 0 && (p < 1 || L.park)) { const [q, ang] = pointAt(pts, cum, d); vehicle(L.vehicle, q[0], q[1], ang, t, col); }
+  if (L.vehicle && p > 0 && (p < 1 || L.park)) { const [q, ang] = pointAt(pts, cum, d); vehicle(L.vehicle, q[0], q[1], ang, t, col, L); }
   else if (!L.vehicle && p > 0 && p < 1) { const [q] = pointAt(pts, cum, d); c.fillStyle = '#fff'; c.shadowColor = col; c.shadowBlur = 16 * U; c.beginPath(); c.arc(q[0], q[1], w * 0.9, 0, 7); c.fill(); }
   c.restore();
 }
@@ -427,9 +442,10 @@ function photo(L, t) {
   const e = E.back(clamp(lt / 0.45)), rot = (slot % 2 ? 0.07 : -0.06);
   c.save(); c.globalAlpha = 1 - out; c.translate(x, y + (1 - e) * 500 * U + out * 120 * U); c.rotate(rot * e + (1 - e) * 0.3);
   c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 18 * U; c.shadowOffsetY = 10 * U; c.fillStyle = '#fbfaf6'; c.fillRect(-fw / 2, -fh / 2, fw, fh); c.shadowColor = 'transparent';
-  const sc = Math.max(pw / im.width, ph / im.height); c.save(); c.beginPath(); c.rect(-pw / 2, -fh / 2 + 18 * U, pw, ph); c.clip();
-  c.drawImage(im, -im.width * sc / 2, -fh / 2 + 18 * U + ph / 2 - im.height * sc / 2, im.width * sc, im.height * sc); c.restore();
-  if (L.caption) { c.font = `${34 * U}px "MM-Hand"`; c.fillStyle = '#2b241c'; c.textAlign = 'center'; c.fillText(L.caption, 0, fh / 2 - 36 * U); }
+  const sc = Math.max(pw / im.width, ph / im.height), sw = pw / sc, sh = ph / sc;          // 按源图裁切（不画出框外，质检的照片框＝看得见的部分）
+  c.drawImage(im, (im.width - sw) / 2, (im.height - sh) / 2, sw, sh, -pw / 2, -fh / 2 + 18 * U, pw, ph);
+  if (L.caption) { c.font = `${34 * U}px "MM-Hand"`; c.fillStyle = '#2b241c'; c.textAlign = 'center'; c.fillText(L.caption, 0, fh / 2 - (L.sub ? 58 : 36) * U); }
+  if (L.sub) { c.font = `${24 * U}px "MM-Hand"`; c.fillStyle = 'rgba(43,36,28,.65)'; c.textAlign = 'center'; c.fillText(L.sub, 0, fh / 2 - 22 * U); }
   c.restore();
 }
 // 海拔剖面卡：曲线随路线进度画出，读数跟着走
@@ -631,8 +647,43 @@ function snap(L, t) {
     c.fillStyle = '#000'; c.fillRect(0, 0, W, H / 2 * cl); c.fillRect(0, H - H / 2 * cl, W, H / 2 * cl);
     if (k > 0.08) { c.globalAlpha = 0.9 * (1 - clamp((k - 0.08) / 0.4)); c.fillStyle = '#fff'; c.fillRect(0, 0, W, H); } c.restore(); }
 }
-const DRAW = { route, pin, region, cone, title: hudTitle, odometer, caption, photo, profile, reticle, coordcard, quiz, snap };
-const ORDER = { region: 0, cone: 0.5, route: 1, pin: 2, reticle: 3, caption: 3, odometer: 3, profile: 3, coordcard: 4, title: 4, photo: 5, quiz: 6, snap: 7 };
+// 到站的形象：落地小跳 → 举相机（拍照姿势）、快门那一下闪光星芒 +「咔嚓!」
+function actor(L, t) {
+  const p = PROJ(L.lnglat); if (!p) return; const lt = t - L.t0, out = L.t_out != null ? clamp((t - L.t_out) / 0.2) : 0; if (out >= 1) return;
+  const snapping = L.snap_t != null && t >= L.snap_t - 0.25 && L.avatar.snap, hop = Math.max(0, Math.sin(clamp(lt / 0.32) * Math.PI)) * 26;
+  c.save(); c.globalAlpha = 1 - out; avatar(IMG[snapping ? L.avatar.snap : L.avatar.walk], p[0], p[1], L.face || 1, t, { hop }); c.restore();
+  if (L.snap_t == null) return; const k = t - L.snap_t; if (k < -0.02 || k > 0.7) return;
+  const side = p[0] > W / 2 ? -1 : 1, fx = p[0] + side * 70 * U, fy = p[1] - 190 * U, e = E.out(k / 0.25), a = 1 - clamp((k - 0.2) / 0.5);   // 闪光和「咔嚓!」放在画面空的那一侧
+  c.save(); c.globalAlpha = a; c.translate(fx, fy); c.rotate(k * 0.8); c.fillStyle = '#fffbe6'; c.shadowColor = 'rgba(255,220,120,.9)'; c.shadowBlur = 30 * U;
+  c.beginPath(); for (let i = 0; i < 16; i++) { const r = (i % 2 ? 16 : 62) * U * e, an = i * Math.PI / 8; i ? c.lineTo(Math.cos(an) * r, Math.sin(an) * r) : c.moveTo(r, 0); } c.closePath(); c.fill(); c.restore();
+  c.save(); c.globalAlpha = a; c.translate(fx + side * 40 * U, fy - 70 * U); c.rotate(-0.12 * side); c.scale(E.back(k / 0.3), E.back(k / 0.3));
+  c.font = `${54 * U}px "MM-Black"`; c.textAlign = 'center'; c.lineJoin = 'round'; c.lineWidth = 12 * U; c.strokeStyle = '#fff'; c.strokeText('咔嚓!', 0, 0); c.fillStyle = S.accent; c.fillText('咔嚓!', 0, 0); c.restore();
+}
+// 片尾照片墙：照片一张张从上方掉进网格（略歪、带白边），最后中间出总结字，形象在下方挥手（拍照姿势左右摇）
+function wall(L, t) {
+  const n = L.photos.length, cols = n <= 4 ? 2 : 3, rows = Math.ceil(n / cols), land = W > H;
+  const cw = (land ? H * 0.5 : W * 0.94) / cols, gw = cw * cols, gx = W / 2 - gw / 2, gy = land ? H * 0.08 : H * 0.1, chh = cw * 1.12, r = rng(11);
+  const dim = clamp((t - L.t0) / 0.6); c.save(); c.fillStyle = `rgba(30,22,12,${0.35 * dim})`; c.fillRect(0, 0, W, H); c.restore();
+  L.photos.forEach((ph, i) => {
+    const im = IMG[ph.image], lt = t - ph.t; if (!im || lt < 0) return;
+    const e = E.back(clamp(lt / 0.42)), cx = gx + (i % cols + 0.5) * cw, cy = gy + (Math.floor(i / cols) + 0.5) * chh, rot = (r() - 0.5) * 0.16;
+    const pw = cw * 0.84, pp = pw * 0.86, fh = pp + 64 * U;
+    c.save(); c.translate(cx, cy - (1 - e) * 600 * U); c.rotate(rot + (1 - e) * 0.4); c.scale(0.6 + 0.4 * e, 0.6 + 0.4 * e);
+    c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 16 * U; c.shadowOffsetY = 8 * U; c.fillStyle = '#fbfaf6'; c.fillRect(-pw / 2, -fh / 2, pw, fh); c.shadowColor = 'transparent';
+    const sq = Math.min(im.width, im.height); c.drawImage(im, (im.width - sq) / 2, (im.height - sq) / 2, sq, sq, -pp / 2, -fh / 2 + (pw - pp) / 2, pp, pp);
+    c.font = `${Math.min(30, cw / 9 / U) * U}px "MM-Hand"`; c.fillStyle = '#2b241c'; c.textAlign = 'center'; c.fillText((ph.caption || '').slice(0, 8), 0, fh / 2 - 22 * U);
+    c.restore();
+  });
+  const ta = E.out((t - L.t_title) / 0.5); if (ta <= 0) return;
+  const ty = gy + rows * chh + 90 * U;
+  c.save(); c.globalAlpha = ta; c.translate(W / 2, ty + (1 - ta) * 40 * U); c.scale(0.8 + 0.2 * E.back(clamp((t - L.t_title) / 0.5)), 0.8 + 0.2 * E.back(clamp((t - L.t_title) / 0.5)));
+  c.font = `${72 * U}px "MM-Black"`; c.textAlign = 'center'; c.lineJoin = 'round'; c.lineWidth = 16 * U; c.strokeStyle = '#fff'; c.strokeText(L.text, 0, 0); c.fillStyle = S.accent; c.fillText(L.text, 0, 0);
+  if (L.sub) { c.font = `${38 * U}px "MM-Hand"`; c.lineWidth = 10 * U; c.strokeText(L.sub, 0, 64 * U); c.fillStyle = S.text; c.fillText(L.sub, 0, 64 * U); }
+  c.restore();
+  if (L.avatar) { const im = IMG[L.avatar.snap || L.avatar.walk]; c.save(); c.globalAlpha = ta; c.translate(W / 2, H - 120 * U); c.rotate(Math.sin((t - L.t_title) * 5) * 0.07); avatar(im, 0, 0, 1, t, { h: 300 }); c.restore(); }
+}
+const DRAW = { route, pin, region, cone, title: hudTitle, odometer, caption, photo, profile, reticle, coordcard, quiz, snap, actor, wall };
+const ORDER = { region: 0, cone: 0.5, route: 1, pin: 2, actor: 2.5, reticle: 3, caption: 3, odometer: 3, profile: 3, coordcard: 4, title: 4, photo: 5, wall: 5.5, quiz: 6, snap: 7 };
 
 // ================= 帧
 window.renderFrame = t => {
@@ -640,7 +691,7 @@ window.renderFrame = t => {
   c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; background();
   const gA = CAM.globe, fA = 1 - gA;
   const layers = TL.layers.filter(L => on(L, t)).sort((a, b) => (ORDER[a.type] ?? 9) - (ORDER[b.type] ?? 9));
-  const mapLayers = layers.filter(L => ['route', 'pin', 'region', 'cone'].includes(L.type)), hud = layers.filter(L => !['route', 'pin', 'region', 'cone'].includes(L.type));
+  const mapLayers = layers.filter(L => ['route', 'pin', 'region', 'cone', 'actor'].includes(L.type)), hud = layers.filter(L => !['route', 'pin', 'region', 'cone', 'actor'].includes(L.type));
   if (fA > 0) { c.save(); c.globalAlpha = fA; drawFlat(t); PROJ = P; for (const L of mapLayers) DRAW[L.type](L, t); c.restore(); }
   if (gA > 0) { drawGlobe(t, gA); PROJ = (ll) => G(ll); c.save(); c.globalAlpha = gA; for (const L of mapLayers) DRAW[L.type](L, t); c.restore(); }
   PROJ = P;

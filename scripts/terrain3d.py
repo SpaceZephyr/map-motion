@@ -8,39 +8,14 @@ import json, math
 from pathlib import Path
 import amap, osm, elev, dem
 
-R_EARTH = 6371.0
-
-
-def hav(a, b):
-    la1, la2 = math.radians(a[1]), math.radians(b[1])
-    return 2 * R_EARTH * math.asin(math.sqrt(math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin(math.radians(b[0] - a[0]) / 2) ** 2))
-
-
-def bearing(a, b):
-    la1, la2, dl = math.radians(a[1]), math.radians(b[1]), math.radians(b[0] - a[0])
-    return math.degrees(math.atan2(math.sin(dl) * math.cos(la2), math.cos(la1) * math.sin(la2) - math.sin(la1) * math.cos(la2) * math.cos(dl))) % 360
-
-
-def merc(ll):
-    s = math.sin(math.radians(max(-85, min(85, ll[1]))))
-    return [(ll[0] + 180) / 360, 0.5 - math.log((1 + s) / (1 - s)) / (4 * math.pi)]
-
-
-def smooth(p): p = max(0.0, min(1.0, p)); return p * p * p * (p * (6 * p - 15) + 10)
-def inout(p): p = max(0.0, min(1.0, p)); return -(math.cos(math.pi * p) - 1) / 2
-def lerp(a, b, e): return a + (b - a) * e
-def lerp_ang(a, b, e): return a + ((b - a + 540) % 360 - 180) * e
+from geo import hav, bearing, merc, smooth, inout, lerp, lerp_ang, ATTR
+import geo
 
 
 def compile(SPEC, sp, out, W, H):
     gcj_in = SPEC.get("gcj", False)
 
-    def pt(p):
-        """[lng,lat]（WGS，"gcj": true 时按高德坐标）| "地名" | {"name","at"} → WGS [lng,lat]"""
-        if isinstance(p, dict): p = p.get("at") or p.get("name")
-        if isinstance(p, str):
-            g = amap.geocode(p); print(f"     地点 {p} → {g['name']}（{g['level']}）"); return elev.gcj2wgs(*g["lnglat"])
-        return elev.gcj2wgs(*p) if gcj_in else list(p)
+    def pt(p): return geo.resolve(p, gcj_in)
 
     def gcj_pt(p):
         """同上，但给高德路线规划用：返回 GCJ-02"""
@@ -154,19 +129,8 @@ def compile(SPEC, sp, out, W, H):
     def follow_cam(i):
         k = max(0, min(len(hs) - 1, i - fi0)); return {"c": cen(ds[i]), "z": zf, "p": pf, "b": hs[k] % 360}
 
-    def fit_cam(b, pitch, fw=0.8, fh=0.55, pts=None):
-        pts = pts or P[::max(1, len(P) // 400)]
-        ms = [merc(p) for p in pts]; cx = sum(m[0] for m in ms) / len(ms); cy = sum(m[1] for m in ms) / len(ms)
-        rb = math.radians(b); xs, ys = [], []
-        for m in ms:
-            dx, dy = m[0] - cx, m[1] - cy
-            xs.append(dx * math.cos(rb) + dy * math.sin(rb)); ys.append(-dx * math.sin(rb) + dy * math.cos(rb))
-        bw, bh = (max(xs) - min(xs)) or 1e-6, ((max(ys) - min(ys)) or 1e-6) * math.cos(math.radians(pitch)) * 1.15
-        z = math.log2(min(W * fw / (bw * 512), H * fh / (bh * 512)))
-        mx, my = (max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2                    # 旋转框中心换回墨卡托
-        cxm = cx + mx * math.cos(rb) - my * math.sin(rb); cym = cy + mx * math.sin(rb) + my * math.cos(rb)
-        lng = cxm * 360 - 180; lat = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * cym))))
-        return {"c": [lng, lat], "z": min(z, zf - 1.0), "p": pitch, "b": b % 360}
+    def fit_cam(b, pitch, fw=0.8, fh=0.55):
+        return geo.fit_cam(P[::max(1, len(P) // 400)], b, pitch, W, H, fw, fh, zf - 1.0)
 
     def best_cam(pref, pitch, fw, fh, span=70):
         """在 pref ±span 里挑能把整条轨迹放得最大的朝向（竖屏里轨迹顺着视线方向摆最舒服）；透视近大远小，再退 0.35 级"""
@@ -177,13 +141,10 @@ def compile(SPEC, sp, out, W, H):
     ov = best_cam(b0, SPEC.get("overview_pitch", 44), 0.7, 0.5)
     ov_end = {**ov, "b": (ov["b"] + 8) % 360}
     fin = best_cam(hs[-1] % 360, 40, 0.66, 0.42); fin_b = fin["b"]
-    st_ll = ov["c"]
     cams = []
     for i, t in enumerate(ts):
         if t < D_DIVE:                                                             # 地球俯冲
-            u = t / D_DIVE; e = inout(u); ce = smooth(u / 0.85)
-            cam = {"c": [st_ll[0] + spin * (1 - ce), lerp(st_ll[1] * 0.4, st_ll[1], ce)], "z": lerp(1.4, ov["z"], e ** 1.15),
-                   "p": lerp(0, ov["p"], smooth((u - 0.55) / 0.45)), "b": lerp_ang(0, ov["b"], smooth((u - 0.5) / 0.5))}
+            cam = geo.dive(t / D_DIVE, ov, spin)
         elif t < D_DIVE + D_OV:                                                    # 全景停留，慢转
             u = (t - D_DIVE) / D_OV; cam = {**ov, "b": lerp_ang(ov["b"], ov_end["b"], u)}
         elif t < t_f0:                                                             # 压低贴近起点
@@ -196,7 +157,7 @@ def compile(SPEC, sp, out, W, H):
             u = (t - t_f1) / D_END; fc = follow_cam(fi1); e = smooth(u / 0.45)
             cam = {"c": [lerp(fc["c"][0], fin["c"][0], e), lerp(fc["c"][1], fin["c"][1], e)], "z": lerp(fc["z"], fin["z"], inout(u / 0.45)),
                    "p": lerp(fc["p"], fin["p"], e), "b": lerp_ang(fc["b"], fin_b, e) + 10 * smooth((u - 0.3) / 0.7)}
-        cams.append([round(cam["c"][0], 6), round(cam["c"][1], 6), round(cam["z"], 4), round(cam["p"], 2), round(cam["b"] % 360, 2), round(ds[i], 4)])
+        cams.append(geo.frame(cam, ds[i]))
 
     tl = {"runtime": "terrain", "width": W, "height": H, "fps": fps, "duration": round(T_END, 3),
           "title": SPEC.get("title", ""), "sub": SPEC.get("sub", ""), "exaggeration": SPEC.get("exaggeration", 1.35),
@@ -205,7 +166,8 @@ def compile(SPEC, sp, out, W, H):
           "track": [[round(p[0], 6), round(p[1], 6), round(ele[i], 1), round(p[2], 4), round(G[i])] for i, p in enumerate(P)],
           "stats": {"km": round(L, 2), "gain": round(gain), "loss": round(loss), "max": round(max(ele)), "min": round(min(ele))},
           "marks": marks, "layers": photos, "frames": cams, "sfx": [],
-          "attribution": "Imagery © Esri, Maxar, Earthstar Geographics · Terrain © Mapzen, AWS" + (" · Track © OpenStreetMap" if isinstance(tr, dict) and tr.get("via") and not tr.get("from") else " · Route © 高德地图" if isinstance(tr, dict) and tr.get("from") else "")}
+          "checks": [round(x, 2) for x in (D_DIVE - 0.2, D_DIVE + D_OV - 0.2, t_f0 + 1.5, (t_f0 + t_f1) / 2, t_f1 + 0.3, T_END - 0.1)],
+          "attribution": ATTR + (" · Track © OpenStreetMap" if isinstance(tr, dict) and tr.get("via") and not tr.get("from") else " · Route © 高德地图" if isinstance(tr, dict) and tr.get("from") else "")}
     out.parent.mkdir(parents=True, exist_ok=True); out.write_text(json.dumps(tl, ensure_ascii=False))
     print(f"timeline -> {out}  {tl['duration']}s  {W}×{H}  3D 地形  {len(cams)} 帧  照片 {len(photos)}  跟随 {t_f0:.1f}–{t_f1:.1f}s")
 
@@ -220,11 +182,10 @@ def compile_place(SPEC, pt, out, W, H):
     for i in range(N):
         t = i / fps
         if t < D_DIVE:
-            u = t / D_DIVE; e = inout(u); ce = smooth(u / 0.85)
-            cam = [ll[0] + spin * (1 - ce), lerp(ll[1] * 0.4, ll[1], ce), lerp(1.4, z, e ** 1.15), lerp(0, pitch, smooth((u - 0.55) / 0.45)), lerp_ang(0, b0, smooth((u - 0.5) / 0.5))]
+            cam = geo.dive(t / D_DIVE, {"c": ll, "z": z, "p": pitch, "b": b0}, spin)
         else:
-            u = (t - D_DIVE) / D_ORB; cam = [ll[0], ll[1], z + 0.25 * smooth(u), pitch, b0 + turn * (0.15 * u + 0.85 * smooth(u))]
-        cams.append([round(cam[0], 6), round(cam[1], 6), round(cam[2], 4), round(cam[3], 2), round(cam[4] % 360, 2), 0])
+            u = (t - D_DIVE) / D_ORB; cam = {"c": ll, "z": z + 0.25 * smooth(u), "p": pitch, "b": b0 + turn * (0.15 * u + 0.85 * smooth(u))}
+        cams.append(geo.frame(cam))
     marks = [{"name": m["name"], "sub": "", "at": pt(m), "ele": None} for m in SPEC.get("marks", [])]
     tl = {"runtime": "terrain", "place": {"name": SPEC.get("name", SPEC["place"] if isinstance(SPEC["place"], str) else ""), "at": ll, "ele": round(ele)},
           "width": W, "height": H, "fps": fps, "duration": round(T_END, 3), "title": SPEC.get("title", ""), "sub": SPEC.get("sub", ""),
@@ -232,7 +193,8 @@ def compile_place(SPEC, pt, out, W, H):
           "phase": {"dive": D_DIVE, "ov": D_DIVE, "f0": 1e9, "f1": 1e9, "end": round(T_END, 3)},
           "track": [[ll[0], ll[1], round(ele), 0, 0], [ll[0], ll[1], round(ele), 0.001, 0]],
           "stats": {"km": 0.001, "gain": 0, "loss": 0, "max": round(ele), "min": round(ele)},
-          "marks": marks, "layers": [], "frames": cams, "sfx": [], "attribution": "Imagery © Esri, Maxar, Earthstar Geographics · Terrain © Mapzen, AWS"}
+          "marks": marks, "layers": [], "frames": cams, "sfx": [], "attribution": ATTR,
+          "checks": [round(x, 2) for x in (D_DIVE * 0.5, D_DIVE - 0.2, D_DIVE + 2, (D_DIVE + T_END) / 2, T_END - 0.1)]}
     out.parent.mkdir(parents=True, exist_ok=True); out.write_text(json.dumps(tl, ensure_ascii=False))
     print(f"     地点 {ll}（WGS-84）海拔 {ele:.0f} m")
     print(f"timeline -> {out}  {tl['duration']}s  {W}×{H}  3D 地形 · 单点环绕  {N} 帧")

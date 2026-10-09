@@ -9,7 +9,7 @@ uv run --with playwright --with certifi python render.py timeline.json --stills 
 import argparse, base64, functools, http.server, json, socketserver, ssl, subprocess, threading, time, urllib.parse, urllib.request
 from pathlib import Path
 from playwright.sync_api import sync_playwright
-import sys; sys.path.insert(0, str(Path(__file__).parent)); import qa
+import sys; sys.path.insert(0, str(Path(__file__).parent)); import qa, audio
 
 HERE = Path(__file__).parent
 ASSETS = HERE.parent / "assets"
@@ -45,6 +45,19 @@ for L in TL["layers"]:                                   # 本地图片（照片
         for fp in L["frames"]:
             f = (tl_path.parent / fp).resolve(); k = str(len(ALLOWED)); ALLOWED[k] = f; fl.append(f"/file/{k}{f.suffix}")
         L["frames"] = fl
+    for ph in L.get("photos") or []:                    # 片尾照片墙
+        if not ph["image"].startswith(("/file/", "http")):
+            f = (tl_path.parent / ph["image"]).resolve()
+            if not f.exists(): raise SystemExit(f"图片不存在：{ph['image']}")
+            k = str(len(ALLOWED)); ALLOWED[k] = f; ph["image"] = f"/file/{k}{f.suffix}"
+    if L.get("avatar"):                                  # 卡通形象贴纸（走路 / 拍照两个姿势）
+        for k, fp in list(L["avatar"].items()):
+            f = (tl_path.parent / fp).resolve()
+            if not f.exists(): raise SystemExit(f"形象图不存在：{fp}")
+            i = str(len(ALLOWED)); ALLOWED[i] = f; L["avatar"][k] = f"/file/{i}{f.suffix}"
+MUSIC = TL.get("music")
+if MUSIC and MUSIC.get("file"):
+    MUSIC["file"] = str((tl_path.parent / MUSIC["file"]).resolve())
 
 try:
     import certifi; CTX = ssl.create_default_context(cafile=certifi.where())
@@ -64,23 +77,6 @@ def tile(src, z, x, y):
         except Exception:
             time.sleep(0.5 * (k + 1))
     STATS["fail"] += 1; return None
-
-
-def sfx_track(events, dur, path):
-    """合成音效音轨：shutter＝单反快门（反光板起 + 帘幕落两下短噪声），带一点低频机身声"""
-    shutter = ("(random(0)*2-1)*0.9*exp(-t*260)*lt(t,0.03)+(random(1)*2-1)*0.75*exp(-(t-0.075)*170)*between(t,0.075,0.12)"
-               "+0.35*sin(2*PI*140*t)*exp(-t*60)*lt(t,0.08)")
-    ins, flt = [], []
-    for k, e in enumerate(events):
-        if e["type"] == "clip":                          # Live Photo 原声：淡入淡出
-            ins += ["-t", str(e["dur"]), "-i", e["path"]]
-            flt.append(f"[{k}:a]aformat=sample_rates=44100:channel_layouts=mono,afade=t=in:d=0.25,afade=t=out:st={max(0, e['dur'] - 0.4)}:d=0.4,adelay={int(e['t'] * 1000)}:all=1[s{k}]")
-            continue
-        ins += ["-f", "lavfi", "-i", f"aevalsrc='{shutter}':s=44100:d=0.3"]
-        flt.append(f"[{k}]highpass=f=120,adelay={int(e['t'] * 1000)}:all=1[s{k}]")
-    mix = "".join(f"[s{k}]" for k in range(len(events)))
-    fc = ";".join(flt) + f";{mix}amix=inputs={len(events)}:normalize=0,apad,atrim=0:{dur}[o]"
-    subprocess.run(["ffmpeg", "-y", "-v", "error", *ins, "-filter_complex", fc, "-map", "[o]", path], check=True)
 
 
 class Q(http.server.SimpleHTTPRequestHandler):
@@ -117,13 +113,14 @@ port = srv.server_address[1]
 
 errors = []
 with sync_playwright() as pw:
-    TERRAIN = TL.get("runtime") == "terrain"                # 3D 地形片：MapLibre（WebGL，无头下走 SwiftShader 软件渲染）
-    b = pw.chromium.launch(args=["--disable-web-security"] + (["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] if TERRAIN else []))
+    RT = TL.get("runtime", "index")                          # 运行时页面 runtime/<RT>.html；都实现 prepare(t) / renderFrame(t) / __canvas
+    WEBGL = RT in ("terrain",) or TL.get("webgl")           # 3D 地形片：MapLibre（WebGL，无头下走 SwiftShader 软件渲染）
+    b = pw.chromium.launch(args=["--disable-web-security"] + (["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] if WEBGL else []))
     pg = b.new_page(viewport={"width": TL["width"], "height": TL["height"]}, device_scale_factor=1)
     pg.on("console", lambda m: (A.verbose and print("[page]", m.text), errors.append(m.text)) if m.type == "error" else None)
     pg.on("pageerror", lambda e: (A.verbose and print("[pageerror]", e), errors.append(str(e))))
     pg.add_init_script("window.MM_TIMELINE = " + json.dumps(TL, ensure_ascii=False) + ";")
-    pg.goto(f"http://127.0.0.1:{port}/{'terrain.html' if TERRAIN else 'index.html'}")
+    pg.goto(f"http://127.0.0.1:{port}/{RT}.html")
     pg.wait_for_function("window.__ready === true || !!window.__bootFailed", timeout=120000)
     if pg.evaluate("window.__bootFailed || null"): raise SystemExit("运行时启动失败：\n" + pg.evaluate("window.__bootFailed"))
     grab = "async (t) => { await window.prepare(t); window.renderFrame(t); return window.__canvas.toDataURL('image/png').split(',')[1]; }"
@@ -139,8 +136,8 @@ with sync_playwright() as pw:
         print(qa.report(samples, W_, H_, 1e9, out / "qa.json"))
     else:
         out = Path(A.out); out.parent.mkdir(parents=True, exist_ok=True)
-        if not A.audio and TL.get("sfx"):                 # 镜头里有快门等音效点且没给音乐：合成一条音效音轨
-            A.audio = str(out.with_suffix(".sfx.wav")); sfx_track(TL["sfx"], TL["duration"], A.audio)
+        if not A.audio and (TL.get("sfx") or MUSIC):      # 没给 --audio：音效点（快门、脚步、啵、叮）＋ 时间轴里的配乐，合成一条音轨（audio.py）
+            A.audio = str(out.with_suffix(".sfx.wav")); audio.mix(TL.get("sfx", []), TL["duration"], A.audio, MUSIC)
         vid = out.with_suffix(".noaudio.mp4") if A.audio else out
         ff = subprocess.Popen(["ffmpeg", "-y", "-v", "error", "-f", "image2pipe", "-framerate", str(fps), "-c:v", "png", "-i", "-",
                                "-c:v", "libx264", "-preset", "slow", "-crf", str(A.crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(vid)], stdin=subprocess.PIPE)

@@ -19,7 +19,7 @@ def compile_(spec):
     tl = spec.with_name(spec.stem + ".timeline.json")
     r = subprocess.run(UV + [str(ENG / "compile.py"), str(spec), "--out", str(tl)], capture_output=True, text=True)
     for l in r.stdout.splitlines():                                  # 只留要人核对的：地点解析、轨迹概况、时长
-        if any(k in l for k in ("地点", "轨迹", "timeline", "注意")): print(l.replace(str(tl.parent) + "/", ""))
+        if any(k in l for k in ("地点", "轨迹", "timeline", "注意", "光线", "机位", "☀")): print(l.replace(str(tl.parent) + "/", ""))
     if r.returncode: print(r.stdout[-1500:], r.stderr[-1500:]); raise SystemExit("编译失败")
     return tl
 
@@ -39,9 +39,8 @@ def gif(video, out=None):
 
 
 def cmd_check(a):
-    spec = Path(a.spec).resolve(); tl = compile_(spec); T = json.loads(tl.read_text()); P = T["phase"]
-    if T.get("place"): ts = [P["dive"] * 0.5, P["dive"] - 0.2, P["dive"] + 2, (P["dive"] + T["duration"]) / 2, T["duration"] - 0.1]
-    else: ts = [P["dive"] - 0.2, P["ov"] - 0.2, P["f0"] + 1.5, (P["f0"] + P["f1"]) / 2, P["f1"] + 0.3, T["duration"] - 0.1]
+    spec = Path(a.spec).resolve(); tl = compile_(spec); T = json.loads(tl.read_text())
+    ts = T["checks"]                                                 # 关键时刻由各片型的编译模块给出
     d = spec.parent / (spec.stem + "-check"); d.mkdir(exist_ok=True); shots, bad = [], []
     for t in ts:
         seg = d / f"seg_{t:05.1f}.mp4"

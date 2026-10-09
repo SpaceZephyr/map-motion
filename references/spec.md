@@ -11,7 +11,7 @@
 | 字段 | 取值 | 说明 |
 |---|---|---|
 | `size` | `portrait`（1080×1920）、`landscape`（1920×1080）、`square`（1080×1080），或 `[w, h]` | 竖屏发抖音/视频号/小红书，横屏发 B 站 |
-| `style` | 瓦片：`amap` `amap-dark` `amap-gray` `amap-sepia` `satellite`；矢量：`dark` `light` `journal` `vintage` `neon` `ink` `blueprint` | 见 SKILL.md 样式表；街道级只能用瓦片样式 |
+| `style` | 瓦片：`amap` `amap-dark` `amap-gray` `amap-sepia` `amap-journal` `satellite`；矢量：`dark` `light` `journal` `vintage` `neon` `ink` `blueprint` | 见 SKILL.md 样式表；街道级只能用瓦片样式 |
 | `tail` | 秒 | 最后一镜结束后多停一会儿 |
 | `attribution` | true/false | 高德瓦片样式右下角写「© 高德地图」；对外发布别关 |
 
@@ -101,6 +101,14 @@
 - `overview: false`：不先展示全程
 - `elevation: true`：每段配海拔剖面卡（高原骑行、翻山自驾）
 
+- **vlog 模式**（写了 `avatar` 就开）：`"avatar": {"walk": "avatar/walk.png", "snap": "avatar/snap.png"}`（透明贴纸、朝右）。小人代替交通工具沿线走（一颠一颠、转向翻面），每站：落地小跳、叮 → 换拍照姿势「咔嚓!」→ 照片弹出（地名 +「第 N 站 · 已走 X km」）；起点有照片也先拍一张再出发；每半拍一声脚步；地图上不再写站名（写在照片上）。`stay` 缺省 3.4 秒，路段时长缺省 2.6+1.6√km（≤ 7 秒）。完整流程见子 skill `travel-vlog/`
+
+### wall — 片尾照片墙
+`{"type": "wall", "text": "5 个机位 · 共走 8.8 km", "sub": "西湖散步", "dur": 5.5}`：拉回全程，前面 trip 的照片（最多 9 张）一张张啵地掉进网格，最后出大字（缺省自动算），形象在下方摇摆。里程表、路段说明自动收起。
+
+### 配乐 `music`（顶层）
+`{"bpm": 120, "seed": 1}`：scripts/audio.py 合成原创欢快 BGM（尤克里里扫弦 + 钟琴 + 贝斯 + 拍手沙锤，换 seed 换旋律）；`{"file": "歌.mp3", "bpm": 118, "volume": 0.7}` 用自己的歌。有 `bpm` 时 vlog 的到站、快门、弹照片、照片墙都对齐拍点。和音效（快门、脚步、啵、叮）一起合成音轨；`--audio` 传入的音轨会整个替换它。
+
 ### snap — 咔嚓（机位揭秘）
 地球俯冲到机位和被摄地之间 → 机位落相机图标、被摄地落针 → 取景扇形从机位扫向被摄地 → 取景框对焦（AF 变绿）→ 快门帘合拢＋闪白＋快门声 → 照片从机位处平躺翻折立起（逐行透视，略过冲回正），背景从虚化地图过渡到这张照片自身的虚化。约 13 秒。
 ```json
@@ -177,3 +185,6 @@ Live Photo：`"live": true` 用静态照片模拟（相纸立起后出 LIVE 角�
 | 区域介绍（城市群、行政区）| region → region（clear）| light / amap |
 | 城市通勤/跑步路线 | route（walking/bicycling 或 track 导入 GPX，follow）| amap / amap-dark |
 | 介绍一个公园/景点 | globe → area，或 region（所在区）→ pins（clear）→ route walking → area trace | satellite / amap |
+
+### 光线推演（`"mode": "sun"`）
+同一套 3D 地形运行时。字段见 map-3d/SKILL.md「光线片 spec」。太阳位置 NOAA 算法（scripts/sun.py），遮挡沿太阳方向在 AWS 高程上找地平线。
